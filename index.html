@@ -563,10 +563,12 @@ async function probePoint(p,signal){ // kurzer Testrouting-Abschnitt Richtung St
 }
 async function findReachable(r,signal){
   const brg=r.snapBearing??(r.snapBearing=bearing(state.start,r.latlng));
-  for(const [dOff,kIn] of SNAP_TRIES){
+  for(let i=r.snapIdx||0;i<SNAP_TRIES.length;i++){
+    const [dOff,kIn]=SNAP_TRIES[i];
     const p=destination(state.start,brg+dOff,Math.max(1000,state.radiusKm*1000-kIn*1000));
-    if(await probePoint(p,signal)) return p;
+    if(await probePoint(p,signal)){ r.snapIdx=i; return p; }
   }
+  r.snapIdx=SNAP_TRIES.length;
   return null;
 }
 async function routeLeg(a,b,signal,depth=0){
@@ -653,6 +655,10 @@ async function computeRoute(r){
     r.way=wayStats(r,legs);
   }catch(e){
     if(e.name==='AbortError'||ctrl!==r.ctrl) return;
+    if(r.optSnap && isPointProblem(e) && (r.snapIdx??0)<SNAP_TRIES.length-1){
+      r.snapIdx=(r.snapIdx??0)+1; r.snapOk=false;
+      return computeRoute(r);
+    }
     r.status='error'; r.error=friendlyError(e); r.coords=null; r.way=null;
   }
   drawRoute(r); renderAll();
@@ -1082,7 +1088,7 @@ function renderList(){
       else if(act==='gpx') exportOne(r);
       else if(act==='komoot'||act==='garmin') sendTo(act,r);
       else if(act==='zoom') select(id,{zoom:true});
-      else if(act==='retry'){ r.snapOk=false; computeRoute(r); }
+      else if(act==='retry'){ r.snapOk=false; r.snapIdx=0; computeRoute(r); }
       else select(id);
     };
   });
@@ -1439,8 +1445,9 @@ function optOpen(){
 function snapToCircle(ll){ return destination(state.start,bearing(state.start,ll),state.radiusKm*1000); }
 function optAdd(ll){
   const snap=state.opt.snap, p=snap?snapToCircle(ll):ll;
-  addTarget(p);
+  addTarget(p,null,{compute:false});
   const r=state.routes[state.routes.length-1]; r.optSnap=snap; state.opt.ids.push(r.id);
+  computeRoute(r);
 }
 function optPlace(ll){
   if(!state.opt||state.opt.phase!=='placing') return;
