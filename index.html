@@ -114,6 +114,30 @@
   #modal .btns{display:flex;flex-direction:column;gap:8px;margin:10px 0}
   #modal .btns button{width:100%;text-align:left}
   #modal .note{font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
+  #optBtn{width:100%;margin-top:8px;font-weight:600}
+  #optBar{position:absolute;z-index:650;top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);display:none;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;
+    background:rgba(17,24,39,.92);color:#fff;padding:8px 12px;border-radius:10px;font-size:13.5px;box-shadow:0 2px 10px rgba(0,0,0,.3);max-width:94%}
+  #optBar.on{display:flex}
+  #optBar button{padding:4px 10px;font-size:12.5px;min-height:0}
+  .crit{border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin:7px 0}
+  .crit.main{border-color:var(--accent);background:var(--accent-weak)}
+  .crit .h{display:flex;align-items:center;gap:8px;font-weight:600}
+  .crit .h input[type=radio]{margin:0}
+  .crit .h .w{margin-left:auto;font-weight:600;color:var(--accent);min-width:42px;text-align:right}
+  .crit .d{font-size:12px;color:var(--muted);margin:2px 0 4px 22px}
+  .crit input[type=range]{width:calc(100% - 22px);margin-left:22px}
+  .sbar{position:relative;height:16px;min-width:70px;background:#eef1f5;border-radius:8px;overflow:hidden}
+  .sbar i{position:absolute;left:0;top:0;bottom:0;border-radius:8px}
+  .sbar span{position:relative;font-size:11px;font-weight:700;padding-left:6px;line-height:16px}
+  .rank{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#e3e6eb;font-weight:700;font-size:12px}
+  .rank.r1{background:#f5c518}.rank.r2{background:#cfd4da}.rank.r3{background:#e3a46b}
+  .pin .rk{position:absolute;top:-9px;right:-11px;background:#111;color:#fff;font-size:10px;line-height:14px;padding:0 4px;border-radius:7px;border:1.5px solid #fff}
+  .pin{position:relative}
+  .pin.best{box-shadow:0 0 0 3px #f5c518,0 1px 4px rgba(0,0,0,.45)}
+  .waysrow{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:5px;font-size:12.5px;color:var(--text)}
+  #rankPane .weights{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin-bottom:8px;font-size:12.5px}
+  #rankPane .weights label{display:inline-flex;gap:6px;align-items:center;margin:0;color:var(--text)}
+  #rankPane .weights input[type=range]{width:110px}
   .wx{position:relative}
   .wx svg{width:100%;height:100%;overflow:visible;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))}
   .wx .rain{position:absolute;left:70%;top:-9px;background:var(--rain);color:#fff;font:700 10px/1 system-ui;padding:2px 4px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.35)}
@@ -146,6 +170,7 @@
     body.side-open #backdrop{display:block;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.25)}
     #menuBtn,#closeSide{display:inline-block}
     #mapMsg{top:calc(58px + env(safe-area-inset-top))}
+    #optBar{top:calc(58px + env(safe-area-inset-top))}
     #bottom{height:260px}
     .wxpane{flex-direction:column}
     .wxpane > div{min-height:200px}
@@ -274,6 +299,7 @@
       <button id="recalcBtn" disabled>↻ Neu berechnen</button>
       <button id="clearBtn" disabled>✕ Alle entfernen</button>
     </div>
+    <button id="optBtn" class="primary">🎯 Routenoptimierung</button>
     <div class="hint">Klick auf die Karte setzt ein Ziel. Marker lassen sich verschieben; Rechtsklick (bzw. langes Drücken) auf einen Marker oder ✕ in der Liste entfernt ihn.</div>
   </section>
 
@@ -286,6 +312,7 @@
   <div id="mapBox">
     <div id="map"></div>
     <button id="menuBtn" title="Einstellungen &amp; Routen">☰ Routen</button>
+    <div id="optBar"></div>
     <div id="mapMsg">Startpunkt wählen: Ort suchen, Standort nutzen oder in die Karte klicken.</div>
   </div>
   <div id="bottom">
@@ -293,6 +320,7 @@
       <button class="small active" data-pane="paneProfile">Höhenprofil</button>
       <button class="small" data-pane="paneWeather">Wind &amp; Wetter</button>
       <button class="small" data-pane="paneTable">Vergleich</button>
+      <button class="small" data-pane="rankPane">🏆 Ranking</button>
       <span class="sp"></span>
       <label><input type="checkbox" id="onlySel"> nur ausgewählte Route</label>
       <button class="small" id="toggleBottom" title="Ein-/Ausklappen">▾</button>
@@ -305,6 +333,7 @@
       </div>
     </div>
     <div class="pane" id="paneTable"></div>
+    <div class="pane" id="rankPane"></div>
   </div>
 </div>
 
@@ -407,6 +436,7 @@ function setMsg(t){ const el=$('mapMsg'); el.style.display=t?'block':'none'; if(
 map.on('click', e => {
   const ll={lat:e.latlng.lat, lng:((e.latlng.lng+540)%360)-180};
   if(state.pickStart || !state.start){ state.pickStart=false; $('pickStartBtn').classList.remove('active'); setStart(ll); }
+  else if(state.opt&&state.opt.phase==='placing') optPlace(ll);
   else addTarget(ll);
 });
 
@@ -590,9 +620,17 @@ async function computeRoute(r){
     Object.assign(r,{status:'ok', coords, cum:cum.map(x=>x*scale), lengthM:len, timeS:time, ascent:up, descent:down,
       maxEle:valid.length?Math.max(...valid):null, minEle:valid.length?Math.min(...valid):null, beeline:d, legs:legs.length, server:[...servers].join(', ')});
     buildSamples(r);
+    r.way=wayStats(r,legs);
   }catch(e){
     if(e.name==='AbortError'||ctrl!==r.ctrl) return;
-    r.status='error'; r.error=friendlyError(e); r.coords=null;
+    // Optimierungs-Endpunkt auf dem Kreis liegt z. B. im Wasser/Wald → radial etwas nach innen versetzen
+    if(r.optSnap && isPointProblem(e) && (r.nudge||0)<4){
+      const back=[3,8,15,25][r.nudge++], br=bearing(state.start,r.latlng);
+      const p=destination(state.start,br,Math.max(1000,state.radiusKm*1000-back*1000));
+      r.latlng={lat:p.lat,lng:p.lng}; r.marker.setLatLng([p.lat,p.lng]); r.name=null; nameTarget(r);
+      return computeRoute(r);
+    }
+    r.status='error'; r.error=friendlyError(e); r.coords=null; r.way=null;
   }
   drawRoute(r); renderAll();
   if(r.status==='ok') scheduleWeather(200);
@@ -811,7 +849,7 @@ legend.update=function(show,mode){
 legend.addTo(map);
 
 /* ================================================================ Ziele verwalten */
-function pinIcon(r){ return L.divIcon({className:'',html:`<div class="pin${r.status==='loading'?' loading':''}" style="background:${r.color}">${r.num}</div>`,iconSize:[26,26],iconAnchor:[13,13]}); }
+function pinIcon(r){ const rk=rankOf(r); return L.divIcon({className:'',html:`<div class="pin${r.status==='loading'?' loading':''}${rk===1?' best':''}" style="background:${r.color}">${r.num}${rk?`<span class="rk">#${rk}</span>`:''}</div>`,iconSize:[26,26],iconAnchor:[13,13]}); }
 function nextColor(){ const used=new Set(state.routes.map(r=>r.color)); return COLORS.find(c=>!used.has(c))||COLORS[state.counter%COLORS.length]; }
 function addTarget(ll,label,{compute=true}={}){
   if(!state.start){ setStart(ll,label); return; }
@@ -831,6 +869,7 @@ function removeTarget(id){
   const r=state.routes[i]; r.ctrl&&r.ctrl.abort();
   map.removeLayer(r.marker); r.line&&map.removeLayer(r.line);
   state.routes.splice(i,1);
+  if(state.opt){ state.opt.ids=state.opt.ids.filter(x=>x!==id); if(state.opt.phase==='placing') updateOptBar(); }
   if(state.selectedId===id) state.selectedId=state.routes.length?state.routes[state.routes.length-1].id:null;
   map.removeLayer(hoverMarker); save(); renderAll();
 }
@@ -993,7 +1032,7 @@ function renderList(){
         <div><span>Abstieg</span><b>${nf0.format(r.descent)} m</b></div>
         <div><span>Luftlinie</span><b>${km(m.beeline)} km</b></div>
         <div><span>max. Höhe</span><b>${m.maxEle!=null?nf0.format(m.maxEle)+' m':'–'}</b></div>
-        <div><span>Fahrzeit*</span><b>${fmtTime(r.timeS)}</b></div></div>${wxRowHtml(r)}`;
+        <div><span>Fahrzeit*</span><b>${fmtTime(r.timeS)}</b></div></div>${wayRowHtml(r)}${wxRowHtml(r)}`;
     return `<div class="card${r.id===state.selectedId?' sel':''}" style="--c:${r.color}" data-id="${r.id}">
       <div class="t"><span class="num">${r.num}</span><span class="nm" title="${esc(label(r))}">${esc(label(r))}</span>
         ${outside?'<span class="badge warn" title="Ziel liegt außerhalb des Kreises">außerhalb</span>':''}
@@ -1201,6 +1240,343 @@ function renderWxStatus(){
   else el.textContent='Wetter wird geladen, sobald eine Route berechnet ist.';
 }
 
+/* ================================================================ Routenoptimierung
+   Endpunkte (max. 10) auf dem Umkreis setzen, Routen nach gewichteten Kriterien bewerten und ranken.
+   Datengrundlage: BRouter-Wegeattribute (highway, surface, smoothness, tracktype, maxspeed, cycleway,
+   route_bicycle_*), Höhenprofil und die Wetterauswertung entlang der Route. */
+const OPT_MAX=10;
+const CRITERIA=[
+  {key:'profile',   icon:'⛰',  name:'Streckenprofil & Untergrund',
+   desc:'Wenig Höhenmeter und Steilstücke, Belag passend zum gewählten Radprofil (Rennrad: Asphalt, Gravel/MTB: Schotter in Ordnung).'},
+  {key:'weather',   icon:'🌦', name:'Wetter',
+   desc:'Rücken- statt Gegenwind, wenig Regen, keine Sturmböen, angenehme Temperatur – bezogen auf die eingestellte Startzeit.'},
+  {key:'beauty',    icon:'🌳', name:'Schönheit & Verkehrsarmut',
+   desc:'Hoher Anteil autofreier Wege und ruhiger Nebenstraßen, wenig Bundes-/Landesstraßen, Bonus für ausgeschilderte Radrouten.'},
+  {key:'efficiency',icon:'⏱', name:'Effizienz (Zusatzkriterium)',
+   desc:'Geringer Umweg gegenüber der Luftlinie – sinnvoll, wenn der Radius möglichst direkt erreicht werden soll.'}
+];
+const PRESETS={
+  profile:   {profile:60,weather:20,beauty:20,efficiency:0},
+  weather:   {profile:20,weather:60,beauty:20,efficiency:0},
+  beauty:    {profile:20,weather:20,beauty:60,efficiency:0},
+  efficiency:{profile:20,weather:20,beauty:20,efficiency:40}
+};
+state.optWeights={...PRESETS.beauty};
+state.opt=null;          // {n, ids, snap, phase:'placing'|'ready'|'waiting'|'done'}
+state.ranking=null;      // [{id,rank,score}]
+
+/* ---- Wegeattribute aus den BRouter-Meldungen */
+const PAVED=new Set(['asphalt','concrete','concrete:plates','concrete:lanes','paved','chipseal','paving_stones','metal','wood']);
+const ROUGH=new Set(['sett','cobblestone','unhewn_cobblestone','cobblestone:flattened','grass_paver']);
+const GOOD_UNPAVED=new Set(['compacted','fine_gravel']);
+const BAD_SMOOTH=/^(bad|very_bad|horrible|very_horrible|impassable)$/;
+function parseTags(str){ const o={}; (str||'').split(' ').forEach(kv=>{ const i=kv.indexOf('='); if(i>0) o[kv.slice(0,i)]=kv.slice(i+1); }); return o; }
+function surfaceClass(t){
+  const s=t.surface;
+  if(BAD_SMOOTH.test(t.smoothness||'')) return s&&PAVED.has(s)?'rough':'unpaved';
+  if(s){ if(PAVED.has(s)) return 'paved'; if(ROUGH.has(s)) return 'rough'; if(GOOD_UNPAVED.has(s)) return 'good'; return 'unpaved'; }
+  if(t.highway==='track') return t.tracktype==='grade1'?'paved':t.tracktype==='grade2'?'good':'unpaved';
+  return 'unknown';
+}
+const LVL_CARFREE=new Set(['cycleway','path','footway','bridleway','pedestrian','track','steps','corridor']);
+const LVL_QUIET=new Set(['residential','living_street','service','unclassified','road']);
+const LVL_MEDIUM=new Set(['tertiary','tertiary_link']);
+function trafficLevel(t){ // 0 autofrei · 1 ruhig · 2 mäßig · 3 viel Verkehr
+  const h=t.highway||'';
+  if(t.bicycle_road==='yes'||t.cyclestreet==='yes') return 0;
+  let l=LVL_CARFREE.has(h)?0:LVL_QUIET.has(h)?1:LVL_MEDIUM.has(h)?2:3;
+  const cw=['cycleway','cycleway:right','cycleway:left','cycleway:both'].map(k=>t[k]).filter(Boolean);
+  if(l>=2&&cw.includes('track')) l--;                        // baulich getrennter Radweg
+  const ms=parseInt(t.maxspeed,10);
+  if(l>=1&&l<=2&&ms>=70) l++;                                 // schnelle Landstraße
+  if(t.motor_vehicle==='no'||t.motorcar==='no') l=Math.min(l,0);
+  return l;
+}
+function wayStats(r,legs){
+  const surf={paved:0,rough:0,good:0,unpaved:0,unknown:0}, traf=[0,0,0,0]; let total=0, cycle=0;
+  legs.forEach(L=>{
+    const m=L.props&&L.props.messages; if(!Array.isArray(m)||m.length<2) return;
+    const iD=m[0].indexOf('Distance'), iT=m[0].indexOf('WayTags'); if(iD<0||iT<0) return;
+    for(let i=1;i<m.length;i++){
+      const d=+m[i][iD]||0; if(d<=0) continue;
+      const t=parseTags(m[i][iT]);
+      total+=d; surf[surfaceClass(t)]+=d; traf[trafficLevel(t)]+=d;
+      if(Object.keys(t).some(k=>k.startsWith('route_bicycle_'))) cycle+=d;
+    }
+  });
+  // Steigungen über gleitende 200-m-Fenster
+  const c=r.coords, cum=r.cum; let j=0, maxGrad=0, steep=0;
+  for(let i=1;i<c.length;i++){
+    while(j+1<i && cum[i]-cum[j+1]>=200) j++;
+    const di=cum[i]-cum[j]; if(di<200||c[i][2]==null||c[j][2]==null) continue;
+    const g=(c[i][2]-c[j][2])/di;
+    if(g>maxGrad) maxGrad=g;
+    if(g>0.08) steep+=cum[i]-cum[i-1];
+  }
+  if(!total) return {total:0, maxGrad, steepShare:r.lengthM?steep/r.lengthM:0};
+  const sh=o=>Object.fromEntries(Object.entries(o).map(([k,v])=>[k,v/total]));
+  return {total, surf:sh(surf), traf:traf.map(v=>v/total), cycle:cycle/total, maxGrad, steepShare:r.lengthM?steep/r.lengthM:0};
+}
+function bikeType(){ const p=profileName().toLowerCase(); return /gravel|mtb/.test(p)?'offroad':/trekking|safety|hiking/.test(p)?'mixed':'road'; }
+const SURF_W={
+  road:   {paved:1, rough:.4, good:.35, unpaved:.05, unknown:.75},
+  mixed:  {paved:1, rough:.6, good:.8,  unpaved:.4,  unknown:.8},
+  offroad:{paved:.85,rough:.6, good:1,   unpaved:.85, unknown:.8}
+};
+const pct=v=>v==null?'–':nf0.format(v*100)+' %';
+function wayRowHtml(r){
+  const w=r.way; if(!w||!w.total) return '';
+  const quiet=w.traf[0]+w.traf[1];
+  return `<div class="waysrow">
+    <span title="Asphalt, Beton, Pflastersteine (glatt)">🛣 ${pct(w.surf.paved)} befestigt</span>
+    <span title="Schotter, Erde, Wiese, verdichtete Wege">🪨 ${pct(w.surf.good+w.surf.unpaved)} unbefestigt</span>
+    <span title="Autofreie Wege + ruhige Nebenstraßen">🌳 ${pct(quiet)} verkehrsarm</span>
+    <span title="Bundes-, Landes- und Kreisstraßen ohne eigenen Radweg">🚗 ${pct(w.traf[3])} Hauptstraße</span>
+    <span title="Steilste 200 m">⛰ max. ${nf0.format(w.maxGrad*100)} %</span>
+  </div>`;
+}
+
+/* ---- Bewertung (0–100 je Kriterium, gewichtet zusammengeführt) */
+const clamp=(v,a=0,b=100)=>Math.max(a,Math.min(b,v));
+function scoreRoute(r){
+  const w=r.way&&r.way.total?r.way:null, o={};
+  const hm100=r.lengthM?r.ascent/(r.lengthM/100e3):0;
+  let climbS=100*Math.exp(-hm100/900);
+  if(r.way){ climbS-=r.way.steepShare*300; if(r.way.maxGrad>0.12) climbS-=10; }
+  climbS=clamp(climbS);
+  const W=SURF_W[bikeType()];
+  const surfS=w?clamp(100*Object.entries(w.surf).reduce((a,[k,v])=>a+W[k]*v,0)):null;
+  o.profile=surfS==null?climbS:0.5*climbS+0.5*surfS; o.climb=climbS; o.surface=surfS;
+  if(r.wx&&r.wx.avgHead!=null){
+    const head=clamp(50-2.5*r.wx.avgHead), rain=100*Math.exp(-(r.wx.rainMm||0)/2.5);
+    let comf=100;
+    if(r.wx.maxGust>45) comf-=(r.wx.maxGust-45)*2;
+    if(r.wx.tMin!=null&&r.wx.tMin<5) comf-=(5-r.wx.tMin)*5;
+    if(r.wx.tMax!=null&&r.wx.tMax>28) comf-=(r.wx.tMax-28)*5;
+    o.weather=0.5*head+0.35*rain+0.15*clamp(comf);
+  } else o.weather=null;
+  o.beauty=w?clamp(88*(w.traf[0]+0.85*w.traf[1]+0.45*w.traf[2]+0.05*w.traf[3])+12*w.cycle):null;
+  o.efficiency=clamp(100-(r.lengthM/Math.max(1,haversine(state.start,r.latlng))-1)*150);
+  let sw=0,sum=0;
+  CRITERIA.forEach(c=>{ const wt=+state.optWeights[c.key]||0; if(wt>0&&o[c.key]!=null){ sw+=wt; sum+=wt*o[c.key]; } });
+  o.total=sw?sum/sw:null;
+  o.missing=CRITERIA.filter(c=>(+state.optWeights[c.key]||0)>0&&o[c.key]==null).map(c=>c.name);
+  return o;
+}
+function optRoutes(){
+  const ids=state.opt&&state.opt.ids.length?state.opt.ids:state.routes.map(r=>r.id);
+  return state.routes.filter(r=>ids.includes(r.id));
+}
+function computeRanking(){
+  const rs=optRoutes().filter(r=>r.status==='ok');
+  const scored=rs.map(r=>({id:r.id,r,score:scoreRoute(r)})).filter(x=>x.score.total!=null)
+    .sort((a,b)=>b.score.total-a.score.total);
+  scored.forEach((x,i)=>x.rank=i+1);
+  return scored;
+}
+function rankOf(r){ if(!state.ranking) return null; const x=state.ranking.find(e=>e.id===r.id); return x?x.rank:null; }
+function scoreColor(v){ return v>=70?'#2e9d4f':v>=50?'#8bbf3c':v>=35?'#f0a020':'#d9534f'; }
+const sbar=v=>v==null?'<span style="color:var(--muted)">–</span>':`<div class="sbar"><i style="width:${clamp(v)}%;background:${scoreColor(v)}"></i><span>${nf0.format(v)}</span></div>`;
+
+/* ---- Ablauf */
+function optOpen(){
+  if(!state.start){ setMsg('Bitte zuerst einen Startpunkt setzen.'); return; }
+  if(typeof openSide==='function') openSide(false);
+  const has=state.routes.length;
+  $('modalBox').innerHTML=`
+    <h3>🎯 Routenoptimierung</h3>
+    <div class="sub">Setze bis zu ${OPT_MAX} Endpunkte auf dem Umkreis (${nf0.format(state.radiusKm)} km um ${esc(state.startName)}). Danach werden die Routen nach deinen Prioritäten bewertet und gerankt.</div>
+    <label for="optN">Anzahl Endpunkte (2–${OPT_MAX})</label>
+    <div class="row"><button class="fix" id="optMinus">−</button><input type="number" id="optN" min="2" max="${OPT_MAX}" value="${Math.min(OPT_MAX,Math.max(2,state.opt?state.opt.n:5))}" style="text-align:center"><button class="fix" id="optPlus">+</button></div>
+    <label class="inline"><input type="checkbox" id="optSnap" checked> Punkte auf dem Umkreis einrasten</label><br>
+    ${has?`<label class="inline"><input type="checkbox" id="optClear" checked> bestehende ${has} Ziel${has>1?'e':''} vorher entfernen</label>`:''}
+    <div class="btns">
+      <button class="primary" id="optGo">📍 Endpunkte auf der Karte setzen</button>
+      <button id="optAuto">⟳ Gleichmäßig auf dem Kreis verteilen</button>
+      <button id="optCancel">Abbrechen</button>
+    </div>
+    <div class="note">Tipp: Beim manuellen Setzen genügt ein Tipp in die ungefähre Richtung – der Punkt rastet auf dem Kreis ein. Liegt er im Wasser oder abseits von Wegen, wird er automatisch etwas nach innen verschoben.</div>`;
+  $('modal').classList.add('on');
+  const n=$('optN'), clampN=()=>{ n.value=Math.min(OPT_MAX,Math.max(2,parseInt(n.value,10)||2)); };
+  $('optMinus').onclick=()=>{ n.value=(+n.value||2)-1; clampN(); };
+  $('optPlus').onclick=()=>{ n.value=(+n.value||2)+1; clampN(); };
+  n.addEventListener('change',clampN);
+  const begin=auto=>{
+    clampN();
+    if($('optClear')&&$('optClear').checked) [...state.routes].forEach(r=>removeTarget(r.id));
+    state.opt={n:+n.value, ids:[], snap:$('optSnap').checked, phase:'placing'}; state.ranking=null;
+    closeModal(); fitCircle();
+    if(auto) optDistribute(); else updateOptBar();
+    renderAll();
+  };
+  $('optGo').onclick=()=>begin(false);
+  $('optAuto').onclick=()=>begin(true);
+  $('optCancel').onclick=closeModal;
+}
+function snapToCircle(ll){ return destination(state.start,bearing(state.start,ll),state.radiusKm*1000); }
+function optAdd(ll){
+  const snap=state.opt.snap, p=snap?snapToCircle(ll):ll;
+  addTarget(p);
+  const r=state.routes[state.routes.length-1]; r.optSnap=snap; state.opt.ids.push(r.id);
+}
+function optPlace(ll){
+  if(!state.opt||state.opt.phase!=='placing') return;
+  optAdd(ll);
+  if(state.opt.ids.length>=state.opt.n) optReady(); else updateOptBar();
+}
+function optDistribute(){ // fehlende Punkte gleichmäßig verteilen, beginnend in Norden bzw. am ersten Punkt
+  const o=state.opt, placed=o.ids.map(id=>state.routes.find(r=>r.id===id)).filter(Boolean);
+  const base=placed.length?bearing(state.start,placed[0].latlng):0;
+  const used=placed.map(r=>bearing(state.start,r.latlng));
+  const slots=[]; for(let k=0;k<o.n;k++) slots.push((base+360*k/o.n)%360);
+  const angDist=(a,b)=>{ const d=Math.abs(a-b)%360; return d>180?360-d:d; };
+  const free=slots.filter(a=>!used.some(u=>angDist(u,a)<180/o.n));
+  const snapWas=o.snap; o.snap=true;
+  for(const a of free){ if(o.ids.length>=o.n) break; optAdd(destination(state.start,a,state.radiusKm*1000)); }
+  o.snap=snapWas;
+  if(o.ids.length>=o.n) optReady(); else updateOptBar();
+}
+function updateOptBar(){
+  const bar=$('optBar'), o=state.opt;
+  if(!o||o.phase==='done'){ bar.classList.remove('on'); return; }
+  bar.classList.add('on');
+  if(o.phase==='placing'){
+    bar.innerHTML=`🎯 Endpunkt <b>${o.ids.length+1}</b> von ${o.n}: ${isTouch?'tippe':'klicke'} in die Karte
+      <button id="obAuto">Rest verteilen</button>${o.ids.length?'<button id="obUndo">↶</button>':''}<button id="obCancel">Abbrechen</button>`;
+    $('obAuto').onclick=optDistribute;
+    if($('obUndo')) $('obUndo').onclick=()=>removeTarget(o.ids[o.ids.length-1]);
+    $('obCancel').onclick=optCancel;
+    setMsg('');
+  } else if(o.phase==='ready'){
+    bar.innerHTML=`🎯 ${o.ids.length} Endpunkte gesetzt <button id="obStart">Optimierung starten …</button><button id="obCancel">Abbrechen</button>`;
+    $('obStart').onclick=optPriorities; $('obCancel').onclick=optCancel;
+  } else if(o.phase==='waiting'){
+    const rs=optRoutes(), done=rs.filter(r=>r.status!=='loading').length;
+    bar.innerHTML=`<span class="spin"></span> Routen ${done}/${rs.length} berechnet${wxInfo.state==='loading'?' · Wetter wird geladen':''} …<button id="obCancel">Abbrechen</button>`;
+    $('obCancel').onclick=optCancel;
+  }
+}
+function optCancel(){ if(state.opt) state.opt.phase='done'; clearInterval(optTimer); updateOptBar(); closeModal(); renderAll(); }
+function optReady(){ state.opt.phase='ready'; updateOptBar(); optPriorities(); }
+function critHtml(main){
+  return CRITERIA.map(c=>`<div class="crit${c.key===main?' main':''}" data-k="${c.key}">
+    <div class="h"><input type="radio" name="optMain" value="${c.key}" ${c.key===main?'checked':''} id="pm_${c.key}"><label for="pm_${c.key}" style="margin:0;color:inherit;font-size:14px">${c.icon} ${c.name}</label><span class="w" id="wv_${c.key}">${state.optWeights[c.key]} %</span></div>
+    <div class="d">${c.desc}</div>
+    <input type="range" min="0" max="100" step="5" value="${state.optWeights[c.key]}" data-w="${c.key}" aria-label="Gewicht ${c.name}">
+  </div>`).join('');
+}
+function mainCrit(){ return CRITERIA.reduce((a,c)=>(+state.optWeights[c.key]||0)>(+state.optWeights[a.key]||0)?c:a).key; }
+function optPriorities(){
+  const rs=optRoutes(), done=rs.filter(r=>r.status!=='loading').length;
+  $('modalBox').innerHTML=`
+    <h3>Optimale Route ermitteln?</h3>
+    <div class="sub">${rs.length} Endpunkte gesetzt · ${done}/${rs.length} Routen bereits berechnet · Start ${fmtDT(startUnix())}, Profil „${esc(profileName())}“</div>
+    <div style="font-weight:600;font-size:13px;margin-top:4px">Hauptpriorität wählen, Gewichte bei Bedarf feinjustieren:</div>
+    <div id="critBox">${critHtml(mainCrit())}</div>
+    <div class="btns">
+      <button class="primary" id="optRun">🏆 Optimale Route ermitteln</button>
+      <button id="optBack">Abbrechen</button>
+    </div>
+    <div class="note">Gewichte werden relativ zueinander verrechnet (Summe muss nicht 100 % sein). Kriterien ohne Daten (z. B. Wetter jenseits des Vorhersagezeitraums ohne Klimadaten) werden übersprungen.</div>`;
+  $('modal').classList.add('on');
+  wireCrit($('critBox'),()=>{});
+  $('optRun').onclick=()=>{ closeModal(); optRun(); };
+  $('optBack').onclick=()=>{ closeModal(); updateOptBar(); };
+}
+function wireCrit(box,onChange){
+  box.querySelectorAll('input[name=optMain]').forEach(rb=>rb.onchange=()=>{
+    Object.assign(state.optWeights,PRESETS[rb.value]);
+    box.querySelectorAll('.crit').forEach(el=>{ el.classList.toggle('main',el.dataset.k===rb.value); const k=el.dataset.k; el.querySelector('input[type=range]').value=state.optWeights[k]; $('wv_'+k).textContent=state.optWeights[k]+' %'; });
+    save(); onChange();
+  });
+  box.querySelectorAll('input[data-w]').forEach(sl=>sl.oninput=()=>{
+    state.optWeights[sl.dataset.w]=+sl.value; $('wv_'+sl.dataset.w).textContent=sl.value+' %';
+    const m=mainCrit(); box.querySelectorAll('.crit').forEach(el=>el.classList.toggle('main',el.dataset.k===m));
+    box.querySelectorAll('input[name=optMain]').forEach(rb=>rb.checked=rb.value===m);
+    save(); onChange();
+  });
+}
+let optTimer=null;
+function optRun(){
+  const o=state.opt||(state.opt={n:state.routes.length,ids:state.routes.map(r=>r.id),snap:false});
+  o.phase='waiting'; updateOptBar();
+  const t0=Date.now();
+  clearInterval(optTimer);
+  optTimer=setInterval(()=>{
+    const rs=optRoutes();
+    const routing=rs.some(r=>r.status==='loading');
+    const wxPending=wxInfo.state==='loading'||rs.some(r=>r.status==='ok'&&!r.wx&&wxInfo.state!=='error');
+    updateOptBar();
+    if((routing||wxPending)&&Date.now()-t0<240e3) return;
+    clearInterval(optTimer);
+    o.phase='done'; updateOptBar();
+    state.ranking=computeRanking();
+    renderAll(); showRankingResult();
+  },600);
+}
+function showTab(id){ const b=document.querySelector(`#tabs [data-pane="${id}"]`); if(b) b.click(); }
+function showRankingResult(){
+  const R=state.ranking||[], failed=optRoutes().filter(r=>r.status==='error').length;
+  if(!R.length){
+    $('modalBox').innerHTML=`<h3>Kein Ranking möglich</h3><div class="sub">Keine der Routen konnte berechnet werden.</div><div class="btns"><button id="mClose">Schließen</button></div>`;
+    $('modal').classList.add('on'); $('mClose').onclick=closeModal; return;
+  }
+  const best=R[0];
+  select(best.id); 
+  const grp=L.featureGroup(R.map(x=>x.r.line).filter(Boolean)); if(grp.getLayers().length) map.fitBounds(grp.getBounds(),{padding:[30,30]});
+  const wts=CRITERIA.filter(c=>+state.optWeights[c.key]>0).map(c=>`${c.icon} ${state.optWeights[c.key]} %`).join(' · ');
+  $('modalBox').innerHTML=`
+    <h3>🏆 Ergebnis: Route ${best.r.num} – ${esc(label(best.r))}</h3>
+    <div class="sub">Gewichtung: ${wts}${failed?` · ${failed} Route(n) nicht berechenbar`:''}</div>
+    <table><thead><tr><th>Rang</th><th>Ziel</th><th>Gesamt</th>${CRITERIA.filter(c=>+state.optWeights[c.key]>0).map(c=>`<th title="${c.name}">${c.icon}</th>`).join('')}</tr></thead><tbody>
+    ${R.map(x=>`<tr data-id="${x.id}" style="cursor:pointer"><td><span class="rank r${x.rank}">${x.rank}</span></td><td><span class="sw" style="background:${x.r.color}"></span>${esc(label(x.r))}<br><span style="color:var(--muted);font-size:11.5px">${km(x.r.lengthM)} km · ${nf0.format(x.r.ascent)} hm</span></td>
+      <td>${sbar(x.score.total)}</td>${CRITERIA.filter(c=>+state.optWeights[c.key]>0).map(c=>`<td>${sbar(x.score[c.key])}</td>`).join('')}</tr>`).join('')}
+    </tbody></table>
+    ${best.score.missing.length?`<div class="hint">Ohne Daten und daher nicht berücksichtigt: ${best.score.missing.join(', ')}.</div>`:''}
+    <div class="btns">
+      <button class="primary" id="mBest">Beste Route anzeigen</button>
+      <button id="mTab">Details im Ranking-Tab</button>
+      <button id="mClose">Schließen</button>
+    </div>`;
+  $('modal').classList.add('on');
+  $('modalBox').querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>{ closeModal(); select(tr.dataset.id,{zoom:true}); });
+  $('mBest').onclick=()=>{ closeModal(); select(best.id,{zoom:true}); };
+  $('mTab').onclick=()=>{ closeModal(); showTab('rankPane'); };
+  $('mClose').onclick=closeModal;
+}
+function renderRanking(){
+  const pane=$('rankPane'); if(!pane) return;
+  const rs=optRoutes().filter(r=>r.status==='ok');
+  if(state.ranking) state.ranking=computeRanking();   // live neu bewerten (Gewichte, Wetter, Startzeit)
+  const R=state.ranking;
+  const weights=`<div class="weights"><b>Gewichtung:</b>${CRITERIA.map(c=>`<label title="${c.desc}">${c.icon} ${c.name.replace(' (Zusatzkriterium)','')} <input type="range" min="0" max="100" step="5" value="${state.optWeights[c.key]}" data-rw="${c.key}"> <span>${state.optWeights[c.key]}</span></label>`).join('')}
+    <button class="small primary" id="rkRun">${R?'↻ Neu ranken':'🏆 Routen ranken'}</button><button class="small" id="rkOpt">🎯 Neue Optimierung</button></div>`;
+  if(!rs.length){ pane.innerHTML=weights+'<div class="empty">Noch keine Routen. Starte die Routenoptimierung oder setze Ziele.</div>'; wireRankPane(); return; }
+  if(!R){ pane.innerHTML=weights+`<div class="empty">${rs.length} Route(n) vorhanden – „Routen ranken“ bewertet sie nach den eingestellten Gewichten.</div>`; wireRankPane(); return; }
+  const act=CRITERIA.filter(c=>+state.optWeights[c.key]>0);
+  pane.innerHTML=weights+`<table><thead><tr><th>Rang</th><th>Ziel</th><th>Gesamt</th>${act.map(c=>`<th title="${c.desc}">${c.icon} ${c.name.split(' ')[0]}</th>`).join('')}
+    <th>Länge</th><th>hm</th><th>befestigt</th><th>verkehrsarm</th><th>Hauptstr.</th><th>max. Steig.</th><th>Ø Wind</th><th>Regen</th></tr></thead><tbody>
+    ${R.map(x=>{ const r=x.r,w=r.way&&r.way.total?r.way:null; return `<tr data-id="${r.id}" class="${r.id===state.selectedId?'sel':''}" style="cursor:pointer">
+      <td><span class="rank r${x.rank}">${x.rank}</span></td><td><span class="sw" style="background:${r.color}"></span>${r.num} · ${esc(label(r))}</td>
+      <td>${sbar(x.score.total)}</td>${act.map(c=>`<td>${sbar(x.score[c.key])}</td>`).join('')}
+      <td>${km(r.lengthM)} km</td><td>${nf0.format(r.ascent)}</td><td>${w?pct(w.surf.paved):'–'}</td><td>${w?pct(w.traf[0]+w.traf[1]):'–'}</td><td>${w?pct(w.traf[3]):'–'}</td>
+      <td>${r.way?nf0.format(r.way.maxGrad*100)+' %':'–'}</td>
+      <td>${r.wx&&r.wx.avgHead!=null?`<span style="color:${r.wx.avgHead>=0.5?'var(--head)':r.wx.avgHead<=-0.5?'var(--tail)':'inherit'}">${r.wx.avgHead>0?'+':''}${nf1.format(r.wx.avgHead)}</span>`:'–'}</td>
+      <td>${r.wx&&r.wx.rainMm!=null?nf1.format(r.wx.rainMm)+' mm':'–'}</td></tr>`; }).join('')}
+  </tbody></table><div class="hint">Scores 0–100 (höher = besser). Profil berücksichtigt Radtyp „${bikeType()==='road'?'Rennrad':bikeType()==='offroad'?'Gravel/MTB':'Trekking'}“ (aus dem Routing-Profil). Wetter bezogen auf Start ${fmtDT(startUnix())}. Ranking aktualisiert sich bei Änderung von Gewichten, Startzeit oder Tempo.</div>`;
+  wireRankPane();
+}
+function wireRankPane(){
+  const pane=$('rankPane');
+  pane.querySelectorAll('input[data-rw]').forEach(sl=>{
+    sl.oninput=()=>{ sl.nextElementSibling.textContent=sl.value; };
+    sl.onchange=()=>{ state.optWeights[sl.dataset.rw]=+sl.value; save(); renderAll(); };
+  });
+  const run=$('rkRun'); if(run) run.onclick=()=>{ if(state.opt&&state.opt.phase==='placing') return; state.ranking=computeRanking(); if(!state.opt) state.opt={n:0,ids:[],snap:false,phase:'done'}; renderAll(); };
+  const op=$('rkOpt'); if(op) op.onclick=optOpen;
+  pane.querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>select(tr.dataset.id,{zoom:true}));
+}
+
 /* ================================================================ Gesamt-Render & Persistenz */
 function renderAll(){
   const colorMode=$('routeColor').value;
@@ -1211,7 +1587,8 @@ function renderAll(){
   });
   const any=state.routes.length>0, anyOk=state.routes.some(r=>r.status==='ok');
   $('exportAllBtn').disabled=!anyOk; $('clearBtn').disabled=!any; $('recalcBtn').disabled=!any;
-  renderList(); renderTable(); renderChart(); renderWxMap(); renderWxChart(); renderBest(); renderWxStatus();
+  renderList(); renderTable(); renderChart(); renderWxMap(); renderWxChart(); renderBest(); renderWxStatus(); renderRanking();
+  $('optBtn').disabled=!state.start;
 }
 function save(){
   try{
@@ -1219,7 +1596,7 @@ function save(){
       start:state.start, startName:state.startName, radiusKm:state.radiusKm,
       profile:$('profile').value, customProfile:$('customProfile').value, server:$('server').value, customServer:$('customServer').value,
       startTime:$('startTime').value, speed:$('speed').value, hpd:$('hpd').value, wxMode:$('wxMode').value,
-      routeColor:$('routeColor').value, showArrows:$('showArrows').checked, arrowsAll:$('arrowsAll').checked,
+      routeColor:$('routeColor').value, showArrows:$('showArrows').checked, arrowsAll:$('arrowsAll').checked, optWeights:state.optWeights,
       targets:state.routes.map(r=>({lat:r.latlng.lat,lng:r.latlng.lng,name:r.name}))
     }));
   }catch{}
@@ -1230,6 +1607,7 @@ function restore(){
   if(!s) return;
   ['profile','customProfile','server','customServer','speed','hpd','wxMode','routeColor'].forEach(k=>{ if(s[k]!=null&&s[k]!=='') $(k).value=s[k]; });
   if(s.showArrows!=null) $('showArrows').checked=s.showArrows;
+  if(s.optWeights) Object.assign(state.optWeights,s.optWeights);
   if(s.arrowsAll!=null) $('arrowsAll').checked=s.arrowsAll;
   if(s.startTime){ const t=new Date(s.startTime).getTime(); if(isFinite(t)&&t>Date.now()-3600e3) $('startTime').value=s.startTime; }
   toggleCustom();
@@ -1265,6 +1643,7 @@ $('customProfile').addEventListener('change',()=>{ save(); recalcAll(); });
 $('server').addEventListener('change',()=>{ toggleCustom(); save(); if($('server').value!=='custom') recalcAll(); });
 $('customServer').addEventListener('change',()=>{ save(); recalcAll(); });
 $('recalcBtn').onclick=recalcAll;
+$('optBtn').onclick=optOpen;
 $('exportAllBtn').onclick=exportAll;
 $('clearBtn').onclick=()=>{ [...state.routes].forEach(r=>removeTarget(r.id)); };
 $('onlySel').addEventListener('change',renderChart);
