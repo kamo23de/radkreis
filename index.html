@@ -525,7 +525,7 @@ function serverList(){
   return [SERVERS.bikerouter, SERVERS.brouter];
 }
 const deadServers=new Set();
-async function fetchLeg(a,b,signal){
+async function fetchLeg(a,b,signal,{timeout=90000}={}){
   let servers=serverList();
   if($('server').value==='auto'){ const alive=servers.filter(s=>!deadServers.has(s.url)); if(alive.length) servers=alive; }
   let lastErr;
@@ -533,8 +533,13 @@ async function fetchLeg(a,b,signal){
     const url=`${s.url}?lonlats=${a.lng.toFixed(6)},${a.lat.toFixed(6)}|${b.lng.toFixed(6)},${b.lat.toFixed(6)}&profile=${encodeURIComponent(profileName())}&alternativeidx=0&format=geojson`;
     try{
       return await limit(async()=>{
-        const resp=await fetch(url,{signal});
-        const txt=await resp.text();
+        const tc=new AbortController(); let timedOut=false;
+        const onAbort=()=>tc.abort(); signal&&signal.addEventListener('abort',onAbort,{once:true});
+        const tm=setTimeout(()=>{ timedOut=true; tc.abort(); },timeout);
+        let resp,txt;
+        try{ resp=await fetch(url,{signal:tc.signal}); txt=await resp.text(); }
+        catch(err){ if(timedOut){ const e=new Error('Zeitüberschreitung beim Routing-Server'); e.server=true; throw e; } throw err; }
+        finally{ clearTimeout(tm); signal&&signal.removeEventListener('abort',onAbort); }
         if(!resp.ok){ const e=new Error(txt.trim().slice(0,300)||('HTTP '+resp.status)); e.server=true; throw e; }
         let gj; try{ gj=JSON.parse(txt); }catch{ const e=new Error(txt.trim().slice(0,300)); e.server=true; throw e; }
         const f=gj.features&&gj.features[0]; if(!f) throw new Error('Leere Antwort vom Routing-Server');
@@ -550,6 +555,20 @@ async function fetchLeg(a,b,signal){
   throw lastErr;
 }
 const isPointProblem = e => /not mapped|island|position/i.test(e.message||'');
+// Versatz-Kandidaten für Endpunkte auf dem Kreis: [Winkelversatz in °, km nach innen]
+const SNAP_TRIES=[[0,0],[5,0],[-5,0],[10,0],[-10,0],[15,0],[-15,0],[0,15],[0,40],[20,10],[-20,10],[0,80]];
+async function probePoint(p,signal){ // kurzer Testrouting-Abschnitt Richtung Start: liegt der Punkt am Wegenetz?
+  try{ await fetchLeg(p,destination(p,bearing(p,state.start),1500),signal,{timeout:20000}); return true; }
+  catch(e){ if(e.name==='AbortError') throw e; return !isPointProblem(e) && !/timeout|Zeit/i.test(e.message); }
+}
+async function findReachable(r,signal){
+  const brg=r.snapBearing??(r.snapBearing=bearing(state.start,r.latlng));
+  for(const [dOff,kIn] of SNAP_TRIES){
+    const p=destination(state.start,brg+dOff,Math.max(1000,state.radiusKm*1000-kIn*1000));
+    if(await probePoint(p,signal)) return p;
+  }
+  return null;
+}
 async function routeLeg(a,b,signal,depth=0){
   try{ return [await fetchLeg(a,b,signal)]; }
   catch(e){
@@ -605,6 +624,17 @@ async function computeRoute(r){
   const ctrl=new AbortController(); r.ctrl=ctrl;
   r.status='loading'; r.error=null; r.progress=null; r.samples=null; r.wx=null; renderAll();
   try{
+    if(r.optSnap && !r.snapOk){ // Endpunkt auf dem Kreis: erreichbaren Punkt in der Nähe suchen
+      r.progress='prüfe Endpunkt'; renderList();
+      const p=await findReachable(r,ctrl.signal);
+      if(ctrl!==r.ctrl) return;
+      r.snapOk=true;
+      if(p && (Math.abs(p.lat-r.latlng.lat)>1e-7||Math.abs(p.lng-r.latlng.lng)>1e-7)){
+        r.latlng={lat:p.lat,lng:p.lng}; r.marker.setLatLng([p.lat,p.lng]); r.name=null; nameTarget(r); r.snapMoved=true;
+      }
+      r.progress=null;
+    }
+    if(!isFinite(r.latlng.lat)||!isFinite(r.latlng.lng)) throw new Error('Ungültige Zielkoordinaten.');
     const a=state.start, b=r.latlng, d=haversine(a,b);
     let pts=[a,b];
     if(d>SEGMENT_THRESHOLD_M){ const n=Math.ceil(d/LEG_M); pts=[]; for(let i=0;i<=n;i++) pts.push(i===0?a:i===n?b:interpolate(a,b,i/n)); }
@@ -623,13 +653,6 @@ async function computeRoute(r){
     r.way=wayStats(r,legs);
   }catch(e){
     if(e.name==='AbortError'||ctrl!==r.ctrl) return;
-    // Optimierungs-Endpunkt auf dem Kreis liegt z. B. im Wasser/Wald → radial etwas nach innen versetzen
-    if(r.optSnap && isPointProblem(e) && (r.nudge||0)<4){
-      const back=[3,8,15,25][r.nudge++], br=bearing(state.start,r.latlng);
-      const p=destination(state.start,br,Math.max(1000,state.radiusKm*1000-back*1000));
-      r.latlng={lat:p.lat,lng:p.lng}; r.marker.setLatLng([p.lat,p.lng]); r.name=null; nameTarget(r);
-      return computeRoute(r);
-    }
     r.status='error'; r.error=friendlyError(e); r.coords=null; r.way=null;
   }
   drawRoute(r); renderAll();
@@ -857,7 +880,7 @@ function addTarget(ll,label,{compute=true}={}){
   r.marker=L.marker([ll.lat,ll.lng],{icon:pinIcon(r),draggable:true,title:'Ziel – ziehen zum Verschieben, Rechtsklick zum Entfernen'}).addTo(map);
   r.marker.on('click',()=>select(r.id));
   r.marker.on('contextmenu',ev=>{L.DomEvent.preventDefault(ev); removeTarget(r.id);});
-  r.marker.on('dragend',()=>{const p=r.marker.getLatLng(); r.latlng={lat:p.lat,lng:((p.lng+540)%360)-180}; r.name=null; nameTarget(r); computeRoute(r); save();});
+  r.marker.on('dragend',()=>{const p=r.marker.getLatLng(); r.optSnap=false; r.latlng={lat:p.lat,lng:((p.lng+540)%360)-180}; r.name=null; nameTarget(r); computeRoute(r); save();});
   state.routes.push(r); state.selectedId=r.id;
   if(!r.name) nameTarget(r);
   if(compute) computeRoute(r);
@@ -1037,7 +1060,7 @@ function renderList(){
       <div class="t"><span class="num">${r.num}</span><span class="nm" title="${esc(label(r))}">${esc(label(r))}</span>
         ${outside?'<span class="badge warn" title="Ziel liegt außerhalb des Kreises">außerhalb</span>':''}
         ${over&&!outside?'<span class="badge warn" title="Route ist länger als der Radius">&gt; Radius</span>':''}
-        ${r.status==='error'?'<span class="badge err">Fehler</span>':''}</div>
+        ${r.status==='error'?'<span class="badge err">Fehler</span>':''}${r.snapMoved?'<span class="badge" title="Der Punkt auf dem Kreis lag abseits von Wegen und wurde zum nächsten erreichbaren Punkt verschoben">verschoben</span>':''}</div>
       ${body}
       <div class="acts">
         <button class="small" data-act="gpx" ${m.ok?'':'disabled'}>⬇ GPX</button>
@@ -1059,7 +1082,7 @@ function renderList(){
       else if(act==='gpx') exportOne(r);
       else if(act==='komoot'||act==='garmin') sendTo(act,r);
       else if(act==='zoom') select(id,{zoom:true});
-      else if(act==='retry') computeRoute(r);
+      else if(act==='retry'){ r.snapOk=false; computeRoute(r); }
       else select(id);
     };
   });
@@ -1452,8 +1475,9 @@ function updateOptBar(){
     $('obStart').onclick=optPriorities; $('obCancel').onclick=optCancel;
   } else if(o.phase==='waiting'){
     const rs=optRoutes(), done=rs.filter(r=>r.status!=='loading').length;
-    bar.innerHTML=`<span class="spin"></span> Routen ${done}/${rs.length} berechnet${wxInfo.state==='loading'?' · Wetter wird geladen':''} …<button id="obCancel">Abbrechen</button>`;
+    bar.innerHTML=`<span class="spin"></span> Routen ${done}/${rs.length} berechnet${wxInfo.state==='loading'?' · Wetter wird geladen':''} …${done>=2?'<button id="obNow">Mit fertigen ranken</button>':''}<button id="obCancel">Abbrechen</button>`;
     $('obCancel').onclick=optCancel;
+    if($('obNow')) $('obNow').onclick=()=>{ o.forceRank=true; };
   }
 }
 function optCancel(){ if(state.opt) state.opt.phase='done'; clearInterval(optTimer); updateOptBar(); closeModal(); renderAll(); }
@@ -1499,7 +1523,7 @@ function wireCrit(box,onChange){
 let optTimer=null;
 function optRun(){
   const o=state.opt||(state.opt={n:state.routes.length,ids:state.routes.map(r=>r.id),snap:false});
-  o.phase='waiting'; updateOptBar();
+  o.phase='waiting'; o.forceRank=false; updateOptBar();
   const t0=Date.now();
   clearInterval(optTimer);
   optTimer=setInterval(()=>{
@@ -1507,7 +1531,7 @@ function optRun(){
     const routing=rs.some(r=>r.status==='loading');
     const wxPending=wxInfo.state==='loading'||rs.some(r=>r.status==='ok'&&!r.wx&&wxInfo.state!=='error');
     updateOptBar();
-    if((routing||wxPending)&&Date.now()-t0<240e3) return;
+    if((routing||wxPending)&&Date.now()-t0<900e3&&!o.forceRank) return;
     clearInterval(optTimer);
     o.phase='done'; updateOptBar();
     state.ranking=computeRanking();
