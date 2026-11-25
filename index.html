@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="core.js"></script>
 <style>
   :root{
     --bg:#f6f7f9; --panel:#fff; --line:#e3e6eb; --text:#1d2330; --muted:#6b7385;
@@ -114,13 +115,6 @@
   #modal .btns{display:flex;flex-direction:column;gap:8px;margin:10px 0}
   #modal .btns button{width:100%;text-align:left}
   #modal .note{font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
-  .crit{border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin:7px 0}
-  .crit.main{border-color:var(--accent);background:var(--accent-weak)}
-  .crit .h{display:flex;align-items:center;gap:8px;font-weight:600}
-  .crit .h input[type=radio]{margin:0}
-  .crit .h .w{margin-left:auto;font-weight:600;color:var(--accent);min-width:42px;text-align:right}
-  .crit .d{font-size:12px;color:var(--muted);margin:2px 0 4px 22px}
-  .crit input[type=range]{width:calc(100% - 22px);margin-left:22px}
   .sbar{position:relative;height:16px;min-width:70px;background:#eef1f5;border-radius:8px;overflow:hidden}
   .sbar i{position:absolute;left:0;top:0;bottom:0;border-radius:8px}
   .sbar span{position:relative;font-size:11px;font-weight:700;padding-left:6px;line-height:16px}
@@ -152,6 +146,10 @@
   #menuBtn{display:none;position:absolute;z-index:600;top:calc(10px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left));
     background:#fff;border:1px solid var(--line);box-shadow:0 1px 5px rgba(0,0,0,.3);font-size:15px;padding:8px 12px}
   #backdrop{display:none}
+  #toast{position:absolute;z-index:700;left:50%;bottom:16px;transform:translateX(-50%);background:rgba(17,24,39,.92);color:#fff;padding:6px 6px 6px 14px;border-radius:8px;font-size:13px;display:none;align-items:center;gap:10px;max-width:90%;box-shadow:0 2px 10px rgba(0,0,0,.3)}
+  #toast.on{display:flex}
+  #toast span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #toast button{background:transparent;color:#9cc1ff;border-color:rgba(156,193,255,.5);font-weight:600}
   /* Touch-Geräte (iPad/iPhone): größere Ziele, kein Auto-Zoom beim Fokus */
   @media (pointer:coarse){
     input[type=text],input[type=number],input[type=datetime-local],select{font-size:16px;min-height:40px}
@@ -311,7 +309,7 @@
       <button id="recalcBtn" disabled>↻ Neu berechnen</button>
       <button id="clearBtn" disabled>✕ Alle entfernen</button>
     </div>
-    <div class="hint">Klick auf die Karte setzt ein Ziel. Marker lassen sich verschieben; Rechtsklick (bzw. langes Drücken) auf einen Marker oder ✕ in der Liste entfernt ihn. Alle Routen werden automatisch bewertet – Rangliste und Gewichtung im Tab „🏆 Ranking“.</div>
+    <div class="hint">Klick auf die Karte setzt ein Ziel. Marker lassen sich verschieben; Rechtsklick (bzw. langes Drücken) auf einen Marker oder ✕ in der Liste entfernt ihn – „Rückgängig“ holt ihn zurück. Alle Routen werden automatisch bewertet – Rangliste und Gewichtung im Tab „🏆 Ranking“.</div>
   </section>
 
   <div id="routes"></div>
@@ -324,6 +322,7 @@
     <div id="map"></div>
     <button id="menuBtn" title="Einstellungen &amp; Routen">☰ Routen</button>
     <div id="mapMsg">Startpunkt wählen: Ort suchen, Standort nutzen oder in die Karte klicken.</div>
+    <div id="toast" role="status" aria-live="polite"><span id="toastText"></span><button class="small" id="toastUndo">Rückgängig</button></div>
   </div>
   <div id="bottom">
     <div id="tabs">
@@ -373,39 +372,6 @@ const state = {
   routes: [], selectedId: null, pickStart: false, counter: 0,
   sort: {key:'num', dir:1}
 };
-
-/* ================================================================ Geo-Helfer */
-const R_EARTH = 6371008.8;
-const rad = d => d*Math.PI/180, deg = r => r*180/Math.PI;
-function haversine(a,b){
-  const dLat=rad(b.lat-a.lat), dLng=rad(b.lng-a.lng);
-  const h=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLng/2)**2;
-  return 2*R_EARTH*Math.asin(Math.min(1,Math.sqrt(h)));
-}
-function destination(p,brngDeg,dist){
-  const d=dist/R_EARTH, b=rad(brngDeg), f1=rad(p.lat), l1=rad(p.lng);
-  const f2=Math.asin(Math.sin(f1)*Math.cos(d)+Math.cos(f1)*Math.sin(d)*Math.cos(b));
-  const l2=l1+Math.atan2(Math.sin(b)*Math.sin(d)*Math.cos(f1),Math.cos(d)-Math.sin(f1)*Math.sin(f2));
-  return {lat:deg(f2), lng:((deg(l2)+540)%360)-180};
-}
-function bearing(a,b){
-  const f1=rad(a.lat), f2=rad(b.lat), dl=rad(b.lng-a.lng);
-  return (deg(Math.atan2(Math.sin(dl)*Math.cos(f2),Math.cos(f1)*Math.sin(f2)-Math.sin(f1)*Math.cos(f2)*Math.cos(dl)))+360)%360;
-}
-function interpolate(a,b,f){ // Punkt auf der Großkreislinie
-  const d=haversine(a,b)/R_EARTH; if(d===0) return {...a};
-  const A=Math.sin((1-f)*d)/Math.sin(d), B=Math.sin(f*d)/Math.sin(d);
-  const f1=rad(a.lat),l1=rad(a.lng),f2=rad(b.lat),l2=rad(b.lng);
-  const x=A*Math.cos(f1)*Math.cos(l1)+B*Math.cos(f2)*Math.cos(l2);
-  const y=A*Math.cos(f1)*Math.sin(l1)+B*Math.cos(f2)*Math.sin(l2);
-  const z=A*Math.sin(f1)+B*Math.sin(f2);
-  return {lat:deg(Math.atan2(z,Math.hypot(x,y))), lng:deg(Math.atan2(y,x))};
-}
-function geodesicCircle(c,rKm,n=360){
-  const pts=[]; for(let i=0;i<=n;i++){const p=destination(c,i*360/n,rKm*1000); pts.push([p.lat,p.lng]);}
-  for(let i=1;i<pts.length;i++){while(pts[i][1]-pts[i-1][1]>180)pts[i][1]-=360;while(pts[i][1]-pts[i-1][1]<-180)pts[i][1]+=360;}
-  return pts;
-}
 
 /* ================================================================ Format-Helfer */
 const nf0=new Intl.NumberFormat('de-DE',{maximumFractionDigits:0});
@@ -601,17 +567,16 @@ async function computeLegs(pts,signal,onProgress,alt=0){
 }
 function friendlyError(e){
   const m=e.message||String(e);
-  if(e instanceof TypeError || /Failed to fetch|NetworkError|Load failed/i.test(m))
+  if(e instanceof TypeError || /Failed to fetch|NetworkError|Load failed/i.test(m)){
+    const cs=$('server').value==='custom'?$('customServer').value.trim():'';
+    if(location.protocol==='https:'&&/^http:/i.test(cs))
+      return 'Der eigene Routing-Server nutzt http://. Von einer https-Seite aus blockiert der Browser solche Anfragen (Mixed Content) – Server per https:// erreichbar machen.';
     return 'Routing-Server nicht erreichbar (Netzwerk oder CORS). Anderen Server unter „Routing-Server“ wählen oder die Seite über http:// statt file:// öffnen.';
+  }
   if(/not mapped/i.test(m)) return 'Punkt liegt zu weit von einem routbaren Weg entfernt (oder außerhalb der Kartendaten). Marker etwas verschieben.';
   if(/island/i.test(m)) return 'Punkt liegt auf einer „Insel“ ohne Wegverbindung. Marker verschieben.';
   if(/profile/i.test(m)) return 'Profil auf diesem Server unbekannt (Spezialprofile gibt es nur bei bikerouter.de): '+m;
   return m;
-}
-function climb(eles,T=5){
-  let up=0,down=0,ref=null;
-  for(const e of eles){ if(e==null) continue; if(ref==null){ref=e;continue;} if(e-ref>=T){up+=e-ref;ref=e;} else if(ref-e>=T){down+=ref-e;ref=e;} }
-  return {up,down};
 }
 const RET_MODES={none:'kein Rückweg', best:'optimal berechnet', same:'gleiche Strecke zurück', alt:'andere Strecke zurück'};
 function legPoints(a,b){
@@ -622,13 +587,6 @@ function joinLegs(legs){
   const coords=[]; let len=0,time=0; const servers=new Set();
   legs.forEach((L,k)=>{ (k?L.coords.slice(1):L.coords).forEach(p=>coords.push(p)); len+=+L.props['track-length']||0; time+=+L.props['total-time']||0; servers.add(L.server); });
   return {coords,len,time,servers};
-}
-function overlapShare(outC,retC){ // Anteil des Rückwegs, der auf dem Hinweg verläuft (Raster ~40 m)
-  const key=p=>Math.round(p[1]*2500)+','+Math.round(p[0]*1600);
-  const set=new Set(); outC.forEach(p=>set.add(key(p)));
-  let hit=0,tot=0;
-  for(let i=1;i<retC.length;i++){ const d=haversine({lat:retC[i-1][1],lng:retC[i-1][0]},{lat:retC[i][1],lng:retC[i][0]}); tot+=d; if(set.has(key(retC[i]))) hit+=d; }
-  return tot?hit/tot:0;
 }
 async function computeRoute(r){
   if(!state.start) return;
@@ -650,8 +608,7 @@ async function computeRoute(r){
     }
     const out=joinLegs(outLegs);
     let coords=out.coords, len=out.len||0, time=out.time, legsAll=outLegs, retLen=0, overlap=null;
-    const outCum=[0]; for(let i=1;i<out.coords.length;i++) outCum.push(outCum[i-1]+haversine({lat:out.coords[i-1][1],lng:out.coords[i-1][0]},{lat:out.coords[i][1],lng:out.coords[i][0]}));
-    if(!len) len=outCum[outCum.length-1];
+    if(!len){ const c=cumDist(out.coords); len=c[c.length-1]; }
     const outLen=len;
     // Rückweg
     if(mode!=='none'){
@@ -668,10 +625,10 @@ async function computeRoute(r){
         ret=joinLegs(retLegs); legsAll=outLegs.concat(retLegs);
         overlap=overlapShare(out.coords,ret.coords);
       }
-      if(!ret.len){ let m=0; for(let i=1;i<ret.coords.length;i++) m+=haversine({lat:ret.coords[i-1][1],lng:ret.coords[i-1][0]},{lat:ret.coords[i][1],lng:ret.coords[i][0]}); ret.len=m; }
+      if(!ret.len){ const c=cumDist(ret.coords); ret.len=c[c.length-1]; }
       coords=out.coords.concat(ret.coords.slice(1)); retLen=ret.len; len=outLen+retLen; time=out.time+ret.time;
     }
-    const cum=[0]; for(let i=1;i<coords.length;i++) cum.push(cum[i-1]+haversine({lat:coords[i-1][1],lng:coords[i-1][0]},{lat:coords[i][1],lng:coords[i][0]}));
+    const cum=cumDist(coords);
     // Hin- und Rückweg getrennt auf die BRouter-Längen skalieren
     const oi=out.coords.length-1, rawOut=cum[oi]||1, rawRet=(cum[cum.length-1]-cum[oi])||1;
     const cumS=cum.map((x,i)=>i<=oi? x*outLen/rawOut : outLen+(x-cum[oi])*(retLen||rawRet)/rawRet);
@@ -699,21 +656,17 @@ const gridKey=(lat,lng)=>`${(Math.round(lat*10)/10).toFixed(1)},${(Math.round(ln
 const speedKmh=()=>Math.min(60,Math.max(5,parseFloat($('speed').value)||25));
 const hoursPerDay=()=>Math.min(24,Math.max(1,parseFloat($('hpd').value)||24));
 const wxMode=()=>$('wxMode').value;
-function elapsedH(distKm){ // Fahrzeit inkl. Nachtpausen
-  const ride=distKm/speedKmh(), hpd=hoursPerDay();
-  if(hpd>=24) return ride;
-  const days=Math.floor(ride/hpd), rest=ride-days*hpd;
-  return rest<1e-9&&days>0 ? (days-1)*24+hpd : days*24+rest;
-}
 function toLocalInput(d){ const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
 function startUnix(){ const v=$('startTime').value; const t=v?new Date(v).getTime():NaN; return isFinite(t)?t/1000:Math.ceil(Date.now()/3.6e6)*3600; }
 function setStartUnix(u){ $('startTime').value=toLocalInput(new Date(u*1000)); save(); scheduleWeather(150); }
 const nextFullHour=()=>Math.ceil(Date.now()/3.6e6)*3600;
 function isoDate(u){ return new Date(u*1000).toISOString().slice(0,10); }
-function shiftYear(u,y){ const d=new Date(u*1000); d.setUTCFullYear(y); return d.getTime()/1000; }
 function climYears(){ const Y=new Date().getUTCFullYear(); return Array.from({length:CLIM_YEARS},(_,i)=>Y-1-i); }
+// Alle Zeitpunkte einer Tour um denselben Jahresabstand verschieben (bezogen auf das Jahr der Startzeit),
+// damit eine Tour über den Jahreswechsel zusammenhängend bleibt.
+const climBaseYear=()=>new Date(startUnix()*1000).getUTCFullYear();
+const climShift=(t,y,base=climBaseYear())=>shiftYears(t,base-y);
 
-function idxAt(cum,d){ let lo=0,hi=cum.length-1; while(lo<hi){const m=(lo+hi)>>1; if(cum[m]<d) lo=m+1; else hi=m;} return lo; }
 function ptAt(r,d){ const i=idxAt(r.cum,Math.max(0,Math.min(r.lengthM,d))); const p=r.coords[i]; return {lat:p[1],lng:p[0]}; }
 function buildTourSamples(r){ // je Richtung eigene Stützpunkte, damit die Fahrtrichtung am Wendepunkt stimmt
   const W=1500;
@@ -768,9 +721,10 @@ async function ensureForecast(keys){
 }
 async function ensureClimate(samples){
   const limitU=Date.now()/1000-6*86400;   // ERA5 liegt einige Tage zurück
+  const base=climBaseYear();
   await Promise.all(climYears().map(async y=>{
     const need=new Map();
-    for(const s of samples){ const ty=shiftYear(s.t,y); const m=need.get(s.key); need.set(s.key,m?[Math.min(m[0],ty),Math.max(m[1],ty)]:[ty,ty]); }
+    for(const s of samples){ const ty=climShift(s.t,y,base); const m=need.get(s.key); need.set(s.key,m?[Math.min(m[0],ty),Math.max(m[1],ty)]:[ty,ty]); }
     const missing=[]; let lo=Infinity,hi=-Infinity;
     need.forEach(([mn,mx],k)=>{
       const c=climCache.get(k+'|'+y);
@@ -789,10 +743,10 @@ function fcAt(key,t,heading){
   return {ws:f.ws[i], wd:f.wd[i], g:f.g[i]??f.ws[i], p:f.p[i]??0, pp:f.pp[i]??null, tmp:f.tmp[i], hw:f.ws[i]*Math.cos(rad(f.wd[i]-heading)), src:'fc'};
 }
 function climAt(key,t,heading){ // Mittel über die letzten Jahre zur gleichen Kalenderzeit
-  let n=0,u=0,v=0,ws=0,g=0,p=0,wet=0,tmp=0,hw=0;
+  let n=0,u=0,v=0,ws=0,g=0,p=0,wet=0,tmp=0,hw=0; const base=climBaseYear();
   for(const y of climYears()){
     const c=climCache.get(key+'|'+y); if(!c) continue;
-    const i=Math.round((shiftYear(t,y)-c.t0)/3600);
+    const i=Math.round((climShift(t,y,base)-c.t0)/3600);
     if(i<0||i>=c.n||c.ws[i]==null||c.wd[i]==null) continue;
     n++; ws+=c.ws[i]; u+=c.ws[i]*Math.sin(rad(c.wd[i])); v+=c.ws[i]*Math.cos(rad(c.wd[i]));
     hw+=c.ws[i]*Math.cos(rad(c.wd[i]-heading)); g+=c.g[i]??c.ws[i]; p+=c.p[i]||0; if((c.p[i]||0)>=0.1) wet++; tmp+=c.tmp[i]??0;
@@ -802,31 +756,28 @@ function climAt(key,t,heading){ // Mittel über die letzten Jahre zur gleichen K
 }
 function wxAt(key,t,heading){ return (wxMode()!=='clim'&&fcAt(key,t,heading)) || climAt(key,t,heading); }
 /* ---- Zeitplan: max. Dauer, Pausenanteil je Route, benötigtes Tempo
-   Pausenanteil p = Standzeit / Gesamtdauer → reine Fahrzeit = Gesamtdauer · (1 − p) */
-function maxDurationH(){ // „6“, „5,5“, „5:30“ → Stunden; leer/ungültig → null
-  const v=String($('maxDur').value||'').trim().replace(',','.'); if(!v) return null;
-  const m=v.match(/^(\d+):(\d{1,2})$/); const h=m?(+m[1])+(+m[2])/60:parseFloat(v);
-  return isFinite(h)&&h>0?h:null;
-}
+   Pausenanteil p = Standzeit / Zeit unterwegs (ohne Nachtruhe) → reine Fahrzeit = Zeit unterwegs · (1 − p).
+   Rechenmodell siehe core.js (elapsedHours / movingHoursWithin). */
+const maxDurationH=()=>parseDurationH($('maxDur').value);
 const pauseFrac=r=>Math.min(0.9,Math.max(0,(+r.pausePct||0)/100));
 function timePlan(r){ // Kennzahlen für die ganze Tour (mit Rückweg: Hin + Rück)
   if(r.status!=='ok'||!r.lengthM) return null;
-  const Lkm=r.lengthM/1000, p=pauseFrac(r), T=maxDurationH(), v=speedKmh();
-  const durAtSpeed=elapsedH(Lkm)/(1-p);                 // Dauer bei eingestelltem Ø-Tempo inkl. Pausen (und ggf. Nachtpausen)
-  const plan={p, T, Lkm, v, durAtSpeed, moveAtSpeed:Lkm/v};
+  const Lkm=r.lengthM/1000, p=pauseFrac(r), T=maxDurationH(), v=speedKmh(), hpd=hoursPerDay();
+  const moveAtSpeed=Lkm/v, durAtSpeed=elapsedHours(Lkm,{v,hpd,p});     // Dauer bei eingestelltem Ø-Tempo inkl. Pausen und Nachtruhe
+  const pauseAtSpeed=moveAtSpeed*p/(1-p), nightAtSpeed=Math.max(0,durAtSpeed-moveAtSpeed-pauseAtSpeed);
+  const plan={p, T, Lkm, v, hpd, durAtSpeed, moveAtSpeed, pauseAtSpeed, nightAtSpeed};
   if(T){
-    plan.move=T*(1-p); plan.stand=T*p;
-    plan.vReq=Lkm/plan.move;                             // benötigtes Ø-Tempo in Bewegung
-    plan.vReqNoPause=Lkm/T;                              // zum Vergleich: ohne Pausen
+    plan.move=movingHoursWithin(T,{hpd,p});                              // in T verfügbare reine Fahrzeit
+    plan.vReq=Lkm/plan.move;                                             // benötigtes Ø-Tempo in Bewegung
+    plan.durReq=elapsedHours(Lkm,{v:plan.vReq,hpd,p});                   // Dauer bei genau diesem Tempo (≤ T)
+    plan.stand=plan.durReq-plan.move;                                    // Pausen (+ ggf. Nachtruhe)
     plan.ok=plan.vReq<=v+1e-9;
   }
   return plan;
 }
 const vMove=r=>{ const pl=timePlan(r); return pl&&pl.T?pl.vReq:speedKmh(); };
-function tourElapsedH(r,d){ // Zeit (h) vom Start bis Distanz d (m), Pausen anteilig verteilt
-  const T=maxDurationH();
-  if(T&&r.lengthM) return T*Math.min(1,d/r.lengthM);    // Plan: Strecke genau in der verfügbaren Zeit
-  return elapsedH(d/1000)/(1-pauseFrac(r));
+function tourElapsedH(r,d){ // Zeit (h) vom Start bis Distanz d (m), inkl. anteiliger Pausen und Nachtruhe
+  return elapsedHours(d/1000,{v:vMove(r),hpd:hoursPerDay(),p:pauseFrac(r)});
 }
 const fmtH=h=>{ if(h==null||!isFinite(h)) return '–'; const t=Math.round(h*60); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')} h`; };
 function assignTimes(r,t0=startUnix()){ r.samples.forEach(s=>{ s.t=t0+tourElapsedH(r,s.d)*3600; }); }
@@ -962,9 +913,18 @@ function addTarget(ll,label,opts={}){
   save(); renderAll();
 }
 function nameTarget(r){ const ll=r.latlng; reverseName(ll).then(n=>{ if(n && r.latlng===ll){ r.name=n; renderAll(); save(); } }); }
-function removeTarget(id){
+const snapshot=r=>({lat:r.latlng.lat,lng:r.latlng.lng,name:r.name,retMode:r.retMode,pausePct:r.pausePct||0});
+let undoTimer=null;
+function offerUndo(text,items){
+  const t=$('toast'); $('toastText').textContent=text; t.classList.add('on');
+  clearTimeout(undoTimer); undoTimer=setTimeout(()=>t.classList.remove('on'),8000);
+  $('toastUndo').onclick=()=>{ clearTimeout(undoTimer); t.classList.remove('on');
+    items.forEach(x=>addTarget(x,x.name,{retMode:x.retMode,pausePct:x.pausePct})); };
+}
+function removeTarget(id,{undo=true}={}){
   const i=state.routes.findIndex(r=>r.id===id); if(i<0) return;
   const r=state.routes[i]; r.ctrl&&r.ctrl.abort();
+  if(undo) offerUndo(`„${label(r)}“ entfernt`,[snapshot(r)]);
   map.removeLayer(r.marker); r.line&&map.removeLayer(r.line);
   state.routes.splice(i,1);
   if(state.selectedId===id) state.selectedId=state.routes.length?state.routes[state.routes.length-1].id:null;
@@ -1038,22 +998,6 @@ const SERVICES={
       'Aktivitätstyp <b>Radfahren</b> wählen, Kurs speichern und mit <b>An Gerät senden</b> auf Edge/Uhr übertragen.'],
     note:'Wichtig: über <b>Kurse</b> importieren, nicht über „Daten importieren“ – das ist nur für Aktivitäten.'}
 };
-function simplifyCoords(coords,tol=2,maxPts=10000){ // Douglas-Peucker in Metern, entfernt nur redundante Punkte
-  const n=coords.length; if(n<3) return coords;
-  const lat0=rad(coords[0][1]), kx=111320*Math.cos(lat0), ky=110540;
-  const P=coords.map(c=>[c[0]*kx,c[1]*ky]);
-  const run=t=>{
-    const keep=new Uint8Array(n); keep[0]=keep[n-1]=1; const stack=[[0,n-1]], t2=t*t;
-    while(stack.length){ const [a,b]=stack.pop(); let md=0,mi=-1;
-      const [ax,ay]=P[a],[bx,by]=P[b], dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy;
-      for(let i=a+1;i<b;i++){ const [px,py]=P[i]; let u=L?((px-ax)*dx+(py-ay)*dy)/L:0; u=Math.max(0,Math.min(1,u));
-        const ex=ax+u*dx-px, ey=ay+u*dy-py, d=ex*ex+ey*ey; if(d>md){md=d;mi=i;} }
-      if(md>t2&&mi>0){ keep[mi]=1; stack.push([a,mi],[mi,b]); } }
-    return coords.filter((_,i)=>keep[i]);
-  };
-  let out=run(tol); while(out.length>maxPts&&tol<200){ tol*=1.6; out=run(tol); }
-  return out;
-}
 function serviceGpx(r){
   const coords=simplifyCoords(r.coords);
   const name=`${state.startName} → ${label(r)}`;
@@ -1103,7 +1047,7 @@ function metrics(r){
     hmPer100:ok&&r.lengthM?r.ascent/(r.lengthM/100e3):null,
     maxEle:ok?r.maxEle:null,
     arrival:ok&&r.samples&&r.samples.length&&r.samples[0].t!=null?r.samples[r.samples.length-1].t:null,
-    dur:ok?(timePlan(r)||{}).durAtSpeed:null, vReq:ok?(timePlan(r)||{}).vReq??null:null, pause:ok?r.pausePct||0:null,
+    dur:ok?(timePlan(r)||{}).durAtSpeed:null, vReq:ok?(timePlan(r)||{}).vReq??null:null,
     head:w?w.avgHead:null, gust:w?w.maxGust:null, rain:w?w.rainMm:null
   };
 }
@@ -1120,8 +1064,12 @@ function wxRowHtml(r){
     ${w.coverage<0.99?'<span class="badge warn">Wetterdaten lückenhaft</span>':''}
   </div>`;
 }
+let listPending=false;
 function renderList(){
-  const box=$('routes');
+  const box=$('routes'), ae=document.activeElement;
+  // Während in einem Feld der Liste getippt wird, nicht neu aufbauen (Fokus/Eingabe/Tastatur gingen verloren) – beim Verlassen nachholen.
+  if(ae&&ae.tagName==='INPUT'&&box.contains(ae)){ listPending=true; return; }
+  listPending=false;
   if(!state.start){ box.innerHTML=''; return; }
   if(!state.routes.length){ box.innerHTML='<div class="empty">Noch keine Ziele.<br>Klicke in die Karte, um ein Ziel zu setzen.</div>'; return; }
   box.innerHTML=state.routes.map(r=>{
@@ -1157,7 +1105,7 @@ function renderList(){
         <button class="small" data-act="del" title="Ziel entfernen">✕</button>
       </div></div>`;
   }).join('') + (state.routes.some(r=>r.status==='ok')?'<div class="hint">* Fahrzeit-Schätzung von BRouter (Profil-abhängig). Ankunft &amp; Wetter nutzen dein Ø-Tempo.</div>':'');
-  box.querySelectorAll('input[data-pause]').forEach(inp=>{ inp.onclick=e=>e.stopPropagation(); inp.onchange=()=>{ const r=state.routes.find(x=>x.id===inp.dataset.pause); if(!r) return;
+  box.querySelectorAll('input[data-pause]').forEach(inp=>{ inp.onclick=e=>e.stopPropagation(); inp.onkeydown=e=>{ if(e.key==='Enter') inp.blur(); }; inp.onchange=()=>{ const r=state.routes.find(x=>x.id===inp.dataset.pause); if(!r) return;
     r.pausePct=Math.min(90,Math.max(0,Math.round(+inp.value||0))); state.defaultPause=r.pausePct; save(); scheduleWeather(150); renderAll(); }; });
   box.querySelectorAll('select[data-ret]').forEach(sel=>sel.onchange=()=>{ const r=state.routes.find(x=>x.id===sel.dataset.ret); if(!r) return; r.retMode=sel.value; save(); computeRoute(r); });
   box.querySelectorAll('.card').forEach(c=>{
@@ -1320,7 +1268,7 @@ function renderBest(){
   const box=$('bestStart'), empty=$('bestEmpty');
   let series=null;
   if(r&&r.samples&&r.wx){
-    const k=[r.id,r.lengthM,speedKmh(),hoursPerDay(),wxMode(),wxInfo.at].join('|');
+    const k=[r.id,r.lengthM,speedKmh(),hoursPerDay(),maxDurationH(),r.pausePct||0,wxMode(),wxInfo.at].join('|');
     if(bestCache.key!==k){ bestCache={key:k,data:bestStartSeries(r)}; }
     series=bestCache.data;
   }
@@ -1377,33 +1325,6 @@ const PRESETS={
 state.optWeights={...PRESETS.beauty};
 state.ranking=null;      // [{id,rank,score}]
 
-/* ---- Wegeattribute aus den BRouter-Meldungen */
-const PAVED=new Set(['asphalt','concrete','concrete:plates','concrete:lanes','paved','chipseal','paving_stones','metal','wood']);
-const ROUGH=new Set(['sett','cobblestone','unhewn_cobblestone','cobblestone:flattened','grass_paver']);
-const GOOD_UNPAVED=new Set(['compacted','fine_gravel']);
-const BAD_SMOOTH=/^(bad|very_bad|horrible|very_horrible|impassable)$/;
-function parseTags(str){ const o={}; (str||'').split(' ').forEach(kv=>{ const i=kv.indexOf('='); if(i>0) o[kv.slice(0,i)]=kv.slice(i+1); }); return o; }
-function surfaceClass(t){
-  const s=t.surface;
-  if(BAD_SMOOTH.test(t.smoothness||'')) return s&&PAVED.has(s)?'rough':'unpaved';
-  if(s){ if(PAVED.has(s)) return 'paved'; if(ROUGH.has(s)) return 'rough'; if(GOOD_UNPAVED.has(s)) return 'good'; return 'unpaved'; }
-  if(t.highway==='track') return t.tracktype==='grade1'?'paved':t.tracktype==='grade2'?'good':'unpaved';
-  return 'unknown';
-}
-const LVL_CARFREE=new Set(['cycleway','path','footway','bridleway','pedestrian','track','steps','corridor']);
-const LVL_QUIET=new Set(['residential','living_street','service','unclassified','road']);
-const LVL_MEDIUM=new Set(['tertiary','tertiary_link']);
-function trafficLevel(t){ // 0 autofrei · 1 ruhig · 2 mäßig · 3 viel Verkehr
-  const h=t.highway||'';
-  if(t.bicycle_road==='yes'||t.cyclestreet==='yes') return 0;
-  let l=LVL_CARFREE.has(h)?0:LVL_QUIET.has(h)?1:LVL_MEDIUM.has(h)?2:3;
-  const cw=['cycleway','cycleway:right','cycleway:left','cycleway:both'].map(k=>t[k]).filter(Boolean);
-  if(l>=2&&cw.includes('track')) l--;                        // baulich getrennter Radweg
-  const ms=parseInt(t.maxspeed,10);
-  if(l>=1&&l<=2&&ms>=70) l++;                                 // schnelle Landstraße
-  if(t.motor_vehicle==='no'||t.motorcar==='no') l=Math.min(l,0);
-  return l;
-}
 function wayStats(r,legs){
   const surf={paved:0,rough:0,good:0,unpaved:0,unknown:0}, traf=[0,0,0,0]; let total=0, cycle=0;
   legs.forEach(L=>{
@@ -1440,15 +1361,17 @@ function timeRowHtml(r){
   const pl=timePlan(r); if(!pl) return '';
   const inp=`<label style="display:inline-flex;align-items:center;gap:4px;margin:0;color:var(--text)" title="Standzeit in % der Gesamtdauer (z. B. 20 = 20 % der Zeit stehen)">⏸ Pausen
     <input type="number" class="pauseInp" data-pause="${r.id}" min="0" max="90" step="5" value="${r.pausePct||0}" style="width:62px;padding:3px 6px;min-height:0;font-size:12.5px"> %</label>`;
+  const nightTxt=h=>h>0.01?` + Nachtruhe ${fmtH(h)}`:'';
   let info;
   if(pl.T){
-    info=`<span title="Benötigtes Durchschnittstempo während der Fahrt, damit ${km(r.lengthM)} km in ${fmtH(pl.T)} inkl. ${nf0.format(pl.p*100)} % Pausen geschafft werden">
+    const rest=Math.max(0,pl.durReq-pl.move-pl.move*pl.p/(1-pl.p));
+    info=`<span title="Benötigtes Durchschnittstempo während der Fahrt, damit ${km(r.lengthM)} km in ${fmtH(pl.T)} inkl. ${nf0.format(pl.p*100)} % Pausen${pl.hpd<24?` und max. ${nf1.format(pl.hpd)} Fahrstunden pro Tag`:''} geschafft werden">
         🎯 nötiges Ø <b>${nf1.format(pl.vReq)} km/h</b></span>
-      <span>Fahrzeit ${fmtH(pl.move)} + Pausen ${fmtH(pl.stand)} = ${fmtH(pl.T)}</span>
+      <span>Fahrzeit ${fmtH(pl.move)} + Pausen ${fmtH(pl.move*pl.p/(1-pl.p))}${nightTxt(rest)} = ${fmtH(pl.durReq)}</span>
       ${pl.ok?`<span class="badge" style="background:#e6f4ea;color:var(--ok)" title="Mit deinem Ø-Tempo von ${nf1.format(pl.v)} km/h dauert die Tour ${fmtH(pl.durAtSpeed)}">✓ machbar (${fmtH(pl.durAtSpeed)} bei ${nf1.format(pl.v)} km/h)</span>`
              :`<span class="badge warn" title="Mit deinem Ø-Tempo von ${nf1.format(pl.v)} km/h dauert die Tour inkl. Pausen ${fmtH(pl.durAtSpeed)}">⚠ zu knapp: ${fmtH(pl.durAtSpeed)} bei ${nf1.format(pl.v)} km/h</span>`}`;
   } else {
-    info=`<span title="Bei deinem Ø-Tempo von ${nf1.format(pl.v)} km/h">⏱ Fahrzeit ${fmtH(pl.moveAtSpeed)} + Pausen ${fmtH(pl.durAtSpeed-elapsedH(pl.Lkm))} ≈ <b>${fmtH(pl.durAtSpeed)}</b></span>
+    info=`<span title="Bei deinem Ø-Tempo von ${nf1.format(pl.v)} km/h">⏱ Fahrzeit ${fmtH(pl.moveAtSpeed)} + Pausen ${fmtH(pl.pauseAtSpeed)}${nightTxt(pl.nightAtSpeed)} ≈ <b>${fmtH(pl.durAtSpeed)}</b></span>
       <span style="color:var(--muted)">(max. Dauer nicht gesetzt)</span>`;
   }
   return `<div class="waysrow" style="align-items:center">${inp}${info}</div>`;
@@ -1578,7 +1501,9 @@ function renderAll(){
   $('exportAllBtn').disabled=!anyOk; $('clearBtn').disabled=!any; $('recalcBtn').disabled=!any;
   renderList(); renderTable(); renderChart(); renderWxMap(); renderWxChart(); renderBest(); renderWxStatus(); renderRanking();
 }
+let restoring=false;   // während restore() nicht speichern, sonst würde ein Zwischenstand (ohne Ziele) die gespeicherten Daten überschreiben
 function save(){
+  if(restoring) return;
   try{
     localStorage.setItem(STORE_KEY,JSON.stringify({
       start:state.start, startName:state.startName, radiusKm:state.radiusKm,
@@ -1602,10 +1527,17 @@ function restore(){
   if(s.startTime){ const t=new Date(s.startTime).getTime(); if(isFinite(t)&&t>Date.now()-3600e3) $('startTime').value=s.startTime; }
   toggleCustom();
   if(s.radiusKm){ state.radiusKm=s.radiusKm; $('radius').value=s.radiusKm; }
-  if(s.start){
-    setStart(s.start,s.startName,{recompute:false});
-    if(s.defaultPause!=null) state.defaultPause=+s.defaultPause||0;
-    (s.targets||[]).forEach(t=>addTarget(t,t.name,{retMode:t.retMode||'none',pausePct:+t.pausePct||0}));
+  const okLL=p=>p&&isFinite(p.lat)&&isFinite(p.lng)&&Math.abs(p.lat)<=90;
+  if(okLL(s.start)){
+    restoring=true;
+    try{
+      setStart(s.start,s.startName,{recompute:false});
+      if(s.defaultPause!=null) state.defaultPause=+s.defaultPause||0;
+      (s.targets||[]).filter(okLL).forEach(t=>{
+        try{ addTarget(t,t.name,{retMode:t.retMode||'none',pausePct:+t.pausePct||0}); }catch(e){ console.warn('Ziel nicht wiederhergestellt',t,e); }
+      });
+    } finally { restoring=false; }
+    save();
   }
 }
 
@@ -1638,7 +1570,11 @@ $('retAll').onclick=()=>{ const v=$('retDefault').value; state.routes.forEach(r=
 $('retDefault').addEventListener('change',save);
 $('maxDur').addEventListener('change',()=>{ const h=maxDurationH(); if($('maxDur').value.trim()&&!h) $('maxDur').value=''; save(); scheduleWeather(150); renderAll(); });
 $('exportAllBtn').onclick=exportAll;
-$('clearBtn').onclick=()=>{ [...state.routes].forEach(r=>removeTarget(r.id)); };
+$('clearBtn').onclick=()=>{
+  const snaps=state.routes.map(snapshot); if(!snaps.length) return;
+  [...state.routes].forEach(r=>removeTarget(r.id,{undo:false}));
+  offerUndo(`${snaps.length} ${snaps.length===1?'Ziel':'Ziele'} entfernt`,snaps);
+};
 $('onlySel').addEventListener('change',renderChart);
 // Wetter-Steuerung
 $('startTime').addEventListener('change',()=>{ save(); scheduleWeather(150); });
@@ -1659,7 +1595,9 @@ $('toggleBottom').onclick=()=>{
 };
 ['chart','wxChart'].forEach(id=>$(id).addEventListener('mouseleave',()=>map.removeLayer(hoverMarker)));
 document.addEventListener('keydown',e=>{
-  if((e.key==='Delete'||e.key==='Backspace') && state.selectedId && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) removeTarget(state.selectedId);
+  // Nur „Entf“ und nur, wenn Karte/Seite den Fokus hat (nicht nach Klick auf einen Button o. Ä.)
+  const ae=document.activeElement;
+  if(e.key==='Delete' && state.selectedId && (!ae||ae===document.body||$('map').contains(ae))) removeTarget(state.selectedId);
   if(e.key==='Escape'&&state.pickStart){ state.pickStart=false; $('pickStartBtn').classList.remove('active'); setMsg(''); }
 });
 

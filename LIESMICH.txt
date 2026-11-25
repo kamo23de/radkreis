@@ -1,7 +1,8 @@
 Radrouten-Radar – Web-App für iPad / iPhone (und Desktop)
 =========================================================
 
-Inhalt: index.html, manifest.webmanifest, sw.js, icons/
+Inhalt: index.html, core.js, manifest.webmanifest, sw.js, icons/
+(tests/, package.json und .github/ werden für den Betrieb nicht benötigt.)
 
 1) Ordnerinhalt auf einen beliebigen HTTPS-Webspace hochladen, z. B.:
    - GitHub Pages: neues Repository anlegen → „Add file → Upload files“ → alle Dateien
@@ -17,3 +18,7 @@ Hinweise
 - Routing, Wetter, Ortssuche und Karten brauchen eine Internetverbindung.
 - GPX-Export öffnet auf dem iPad das Teilen-Menü (Komoot, Wahoo, Garmin, Dateien …).
 - Gespeicherte Planungen liegen lokal im Browser des Geräts.
+- Nach Änderungen an der App in sw.js die VERSION erhöhen, damit alte Offline-Caches entfernt werden.
+
+Entwicklung
+- Tests der Rechenfunktionen (core.js): `npm test` (Node 20 oder neuer, keine Abhängigkeiten).
