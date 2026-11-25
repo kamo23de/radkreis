@@ -240,7 +240,7 @@
   </section>
 
   <section>
-    <h2>3 · Wind &amp; Wetter</h2>
+    <h2>3 · Zeit, Wind &amp; Wetter</h2>
     <label for="startTime">Startzeitpunkt</label>
     <input type="datetime-local" id="startTime" step="3600">
     <div class="row" style="margin-top:6px">
@@ -260,8 +260,8 @@
         <input type="number" id="hpd" min="1" max="24" step="0.5" value="24" title="24 = durchfahren; z. B. 10 = 10 h fahren, 14 h Pause">
       </div>
       <div>
-        <label for="pauseAtTarget">Pause am Ziel (h)</label>
-        <input type="number" id="pauseAtTarget" min="0" max="48" step="0.25" value="0.5" title="Aufenthalt am Wendepunkt vor dem Rückweg – wirkt auf Ankunftszeit und Wetter">
+        <label for="maxDur">Max. Dauer (h)</label>
+        <input type="text" id="maxDur" inputmode="decimal" placeholder="z. B. 6 oder 5:30" title="Insgesamt verfügbare Zeit je Route inkl. Pausen – mit Rückweg für Hin- und Rückweg zusammen. Leer = keine Vorgabe.">
       </div>
       <div>
         <label for="wxMode">Datenbasis</label>
@@ -801,15 +801,38 @@ function climAt(key,t,heading){ // Mittel über die letzten Jahre zur gleichen K
   return {ws:ws/n, wd:(deg(Math.atan2(u,v))+360)%360, g:g/n, p:p/n, pp:wet/n*100, tmp:tmp/n, hw:hw/n, src:'clim', years:n};
 }
 function wxAt(key,t,heading){ return (wxMode()!=='clim'&&fcAt(key,t,heading)) || climAt(key,t,heading); }
-const pauseH=()=>Math.min(48,Math.max(0,parseFloat($('pauseAtTarget').value)||0));
-function tourElapsedH(r,d){ // Fahrzeit bis Distanz d (m) inkl. Pause am Wendepunkt
-  if(!r.retLen||d<=r.outLen) return elapsedH(d/1000);
-  return elapsedH(r.outLen/1000)+pauseH()+elapsedH((d-r.outLen)/1000);
+/* ---- Zeitplan: max. Dauer, Pausenanteil je Route, benötigtes Tempo
+   Pausenanteil p = Standzeit / Gesamtdauer → reine Fahrzeit = Gesamtdauer · (1 − p) */
+function maxDurationH(){ // „6“, „5,5“, „5:30“ → Stunden; leer/ungültig → null
+  const v=String($('maxDur').value||'').trim().replace(',','.'); if(!v) return null;
+  const m=v.match(/^(\d+):(\d{1,2})$/); const h=m?(+m[1])+(+m[2])/60:parseFloat(v);
+  return isFinite(h)&&h>0?h:null;
 }
+const pauseFrac=r=>Math.min(0.9,Math.max(0,(+r.pausePct||0)/100));
+function timePlan(r){ // Kennzahlen für die ganze Tour (mit Rückweg: Hin + Rück)
+  if(r.status!=='ok'||!r.lengthM) return null;
+  const Lkm=r.lengthM/1000, p=pauseFrac(r), T=maxDurationH(), v=speedKmh();
+  const durAtSpeed=elapsedH(Lkm)/(1-p);                 // Dauer bei eingestelltem Ø-Tempo inkl. Pausen (und ggf. Nachtpausen)
+  const plan={p, T, Lkm, v, durAtSpeed, moveAtSpeed:Lkm/v};
+  if(T){
+    plan.move=T*(1-p); plan.stand=T*p;
+    plan.vReq=Lkm/plan.move;                             // benötigtes Ø-Tempo in Bewegung
+    plan.vReqNoPause=Lkm/T;                              // zum Vergleich: ohne Pausen
+    plan.ok=plan.vReq<=v+1e-9;
+  }
+  return plan;
+}
+const vMove=r=>{ const pl=timePlan(r); return pl&&pl.T?pl.vReq:speedKmh(); };
+function tourElapsedH(r,d){ // Zeit (h) vom Start bis Distanz d (m), Pausen anteilig verteilt
+  const T=maxDurationH();
+  if(T&&r.lengthM) return T*Math.min(1,d/r.lengthM);    // Plan: Strecke genau in der verfügbaren Zeit
+  return elapsedH(d/1000)/(1-pauseFrac(r));
+}
+const fmtH=h=>{ if(h==null||!isFinite(h)) return '–'; const t=Math.round(h*60); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')} h`; };
 function assignTimes(r,t0=startUnix()){ r.samples.forEach(s=>{ s.t=t0+tourElapsedH(r,s.d)*3600; }); }
-function summarize(S){
+function summarize(S,spMove){
   let wsum=0,hw=0,rain=0,wetKm=0,gmax=null,tmin=null,tmax=null,cov=0,clim=0;
-  const sp=speedKmh();
+  const sp=spMove||speedKmh();
   for(const s of S){ const w=s.wx; if(!w) continue; cov++; if(w.src==='clim') clim++;
     gmax=Math.max(gmax??-Infinity,w.g); if(w.tmp!=null){ tmin=Math.min(tmin??Infinity,w.tmp); tmax=Math.max(tmax??-Infinity,w.tmp); } }
   for(let i=0;i<S.length-1;i++){
@@ -825,7 +848,7 @@ function applyWeather(r){
   if(!r.samples) return;
   assignTimes(r);
   r.samples.forEach(s=>{ s.wx=wxAt(s.key,s.t,s.heading); });
-  r.wx=summarize(r.samples);
+  r.wx=summarize(r.samples,vMove(r));
 }
 function scheduleWeather(delay=400){ clearTimeout(wxTimer); wxTimer=setTimeout(updateWeather,delay); }
 async function updateWeather(){
@@ -857,7 +880,7 @@ function bestStartSeries(r){ // Score je möglicher Startstunde innerhalb des Vo
   for(let t=nextFullHour(); t+dur<=fEnd; t+=3600){
     const S=r.samples.map((s,i)=>({d:s.d, t:t+offs[i], wx:fcAt(s.key,t+offs[i],s.heading)}));
     if(S.some(s=>!s.wx)) continue;
-    const sm=summarize(S);
+    const sm=summarize(S,vMove(r));
     out.push({t, head:sm.avgHead, rain:sm.rainMm, score:sm.avgHead+RAIN_WEIGHT*sm.rainMm});
   }
   return out;
@@ -928,7 +951,7 @@ function nextColor(){ const used=new Set(state.routes.map(r=>r.color)); return C
 function addTarget(ll,label,opts={}){
   const compute=opts.compute!==false;
   if(!state.start){ setStart(ll,label); return; }
-  const r={id:'r'+(++state.counter), num:state.counter, color:nextColor(), latlng:{lat:ll.lat,lng:ll.lng}, name:label||null, status:'idle', retMode:opts.retMode||$('retDefault').value};
+  const r={id:'r'+(++state.counter), num:state.counter, color:nextColor(), latlng:{lat:ll.lat,lng:ll.lng}, name:label||null, status:'idle', retMode:opts.retMode||$('retDefault').value, pausePct:opts.pausePct??state.defaultPause??0};
   r.marker=L.marker([ll.lat,ll.lng],{icon:pinIcon(r),draggable:true,title:'Ziel – ziehen zum Verschieben, Rechtsklick zum Entfernen'}).addTo(map);
   r.marker.on('click',()=>select(r.id));
   r.marker.on('contextmenu',ev=>{L.DomEvent.preventDefault(ev); removeTarget(r.id);});
@@ -1080,6 +1103,7 @@ function metrics(r){
     hmPer100:ok&&r.lengthM?r.ascent/(r.lengthM/100e3):null,
     maxEle:ok?r.maxEle:null,
     arrival:ok&&r.samples&&r.samples.length&&r.samples[0].t!=null?r.samples[r.samples.length-1].t:null,
+    dur:ok?(timePlan(r)||{}).durAtSpeed:null, vReq:ok?(timePlan(r)||{}).vReq??null:null, pause:ok?r.pausePct||0:null,
     head:w?w.avgHead:null, gust:w?w.maxGust:null, rain:w?w.rainMm:null
   };
 }
@@ -1112,7 +1136,7 @@ function renderList(){
         <div><span>Abstieg</span><b>${nf0.format(r.descent)} m</b></div>
         <div><span>Luftlinie</span><b>${km(m.beeline)} km</b></div>
         <div><span>max. Höhe</span><b>${m.maxEle!=null?nf0.format(m.maxEle)+' m':'–'}</b></div>
-        <div><span>Fahrzeit*</span><b>${fmtTime(r.timeS)}</b></div></div>${retRowHtml(r)}${wayRowHtml(r)}${wxRowHtml(r)}`;
+        <div><span>Fahrzeit*</span><b>${fmtTime(r.timeS)}</b></div></div>${timeRowHtml(r)}${retRowHtml(r)}${wayRowHtml(r)}${wxRowHtml(r)}`;
     return `<div class="card${r.id===state.selectedId?' sel':''}" style="--c:${r.color}" data-id="${r.id}">
       <div class="t"><span class="num">${r.num}</span>${rankOf(r)?`<span class="rkb r${rankOf(r)}" title="Rang in der Bewertung">#${rankOf(r)}</span>`:''}<span class="nm" title="${esc(label(r))}">${esc(label(r))}</span>
         ${outside?'<span class="badge warn" title="Ziel liegt außerhalb des Kreises">außerhalb</span>':''}
@@ -1133,12 +1157,14 @@ function renderList(){
         <button class="small" data-act="del" title="Ziel entfernen">✕</button>
       </div></div>`;
   }).join('') + (state.routes.some(r=>r.status==='ok')?'<div class="hint">* Fahrzeit-Schätzung von BRouter (Profil-abhängig). Ankunft &amp; Wetter nutzen dein Ø-Tempo.</div>':'');
+  box.querySelectorAll('input[data-pause]').forEach(inp=>{ inp.onclick=e=>e.stopPropagation(); inp.onchange=()=>{ const r=state.routes.find(x=>x.id===inp.dataset.pause); if(!r) return;
+    r.pausePct=Math.min(90,Math.max(0,Math.round(+inp.value||0))); state.defaultPause=r.pausePct; save(); scheduleWeather(150); renderAll(); }; });
   box.querySelectorAll('select[data-ret]').forEach(sel=>sel.onchange=()=>{ const r=state.routes.find(x=>x.id===sel.dataset.ret); if(!r) return; r.retMode=sel.value; save(); computeRoute(r); });
   box.querySelectorAll('.card').forEach(c=>{
     const id=c.dataset.id, r=state.routes.find(x=>x.id===id);
     c.onclick=e=>{
       const act=e.target.closest('[data-act]')?.dataset.act;
-      if(e.target.closest('a')||e.target.closest('select')) return;
+      if(e.target.closest('a')||e.target.closest('select')||e.target.closest('input')) return;
       if(act==='del') removeTarget(id);
       else if(act==='gpx') exportOne(r);
       else if(act==='komoot'||act==='garmin') sendTo(act,r);
@@ -1162,6 +1188,8 @@ const COLS=[
   ['head','Ø Wind (+ gegen)',m=>m.head!=null?`<span style="color:${m.head>=0.5?'var(--head)':m.head<=-0.5?'var(--tail)':'inherit'}">${m.head>0?'+':''}${nf1.format(m.head)} km/h</span>`:'–','min'],
   ['gust','max. Böe',m=>m.gust!=null?nf0.format(m.gust)+' km/h':'–','min'],
   ['rain','Regen',m=>m.rain!=null?nf1.format(m.rain)+' mm':'–','min'],
+  ['dur','Dauer bei Ø',m=>m.dur!=null?fmtH(m.dur):'–','min'],
+  ['vReq','nötiges Ø',m=>m.vReq!=null?`<span style="color:${m.vReq>speedKmh()?'var(--err)':'inherit'}">${nf1.format(m.vReq)} km/h</span>`:'–','min'],
   ['arrival','Ankunft',m=>fmtDT(m.arrival),'min'],
 ];
 function renderTable(){
@@ -1408,6 +1436,23 @@ const SURF_W={
   offroad:{paved:.85,rough:.6, good:1,   unpaved:.85, unknown:.8}
 };
 const pct=v=>v==null?'–':nf0.format(v*100)+' %';
+function timeRowHtml(r){
+  const pl=timePlan(r); if(!pl) return '';
+  const inp=`<label style="display:inline-flex;align-items:center;gap:4px;margin:0;color:var(--text)" title="Standzeit in % der Gesamtdauer (z. B. 20 = 20 % der Zeit stehen)">⏸ Pausen
+    <input type="number" class="pauseInp" data-pause="${r.id}" min="0" max="90" step="5" value="${r.pausePct||0}" style="width:62px;padding:3px 6px;min-height:0;font-size:12.5px"> %</label>`;
+  let info;
+  if(pl.T){
+    info=`<span title="Benötigtes Durchschnittstempo während der Fahrt, damit ${km(r.lengthM)} km in ${fmtH(pl.T)} inkl. ${nf0.format(pl.p*100)} % Pausen geschafft werden">
+        🎯 nötiges Ø <b>${nf1.format(pl.vReq)} km/h</b></span>
+      <span>Fahrzeit ${fmtH(pl.move)} + Pausen ${fmtH(pl.stand)} = ${fmtH(pl.T)}</span>
+      ${pl.ok?`<span class="badge" style="background:#e6f4ea;color:var(--ok)" title="Mit deinem Ø-Tempo von ${nf1.format(pl.v)} km/h dauert die Tour ${fmtH(pl.durAtSpeed)}">✓ machbar (${fmtH(pl.durAtSpeed)} bei ${nf1.format(pl.v)} km/h)</span>`
+             :`<span class="badge warn" title="Mit deinem Ø-Tempo von ${nf1.format(pl.v)} km/h dauert die Tour inkl. Pausen ${fmtH(pl.durAtSpeed)}">⚠ zu knapp: ${fmtH(pl.durAtSpeed)} bei ${nf1.format(pl.v)} km/h</span>`}`;
+  } else {
+    info=`<span title="Bei deinem Ø-Tempo von ${nf1.format(pl.v)} km/h">⏱ Fahrzeit ${fmtH(pl.moveAtSpeed)} + Pausen ${fmtH(pl.durAtSpeed-elapsedH(pl.Lkm))} ≈ <b>${fmtH(pl.durAtSpeed)}</b></span>
+      <span style="color:var(--muted)">(max. Dauer nicht gesetzt)</span>`;
+  }
+  return `<div class="waysrow" style="align-items:center">${inp}${info}</div>`;
+}
 function retRowHtml(r){
   if(!r.retLen) return '';
   const ov=r.overlap!=null?nf0.format(r.overlap*100):'–';
@@ -1494,11 +1539,11 @@ function renderRanking(){
   if(!R||!R.length){ pane.innerHTML=weights+'<div class="empty">Bitte mindestens ein Kriterium gewichten.</div>'; wireRankPane(); return; }
   const act=CRITERIA.filter(c=>+state.optWeights[c.key]>0);
   pane.innerHTML=weights+`<table><thead><tr><th>Rang</th><th>Ziel</th><th>Gesamt</th>${act.map(c=>`<th title="${c.desc}">${c.icon} ${c.name.split(' ')[0]}</th>`).join('')}
-    <th>Länge</th><th>hm</th><th>befestigt</th><th>verkehrsarm</th><th>Hauptstr.</th><th>max. Steig.</th><th>Ø Wind</th><th>Regen</th></tr></thead><tbody>
+    <th>Länge</th><th>nötiges Ø</th><th>hm</th><th>befestigt</th><th>verkehrsarm</th><th>Hauptstr.</th><th>max. Steig.</th><th>Ø Wind</th><th>Regen</th></tr></thead><tbody>
     ${R.map(x=>{ const r=x.r,w=r.way&&r.way.total?r.way:null; return `<tr data-id="${r.id}" class="${r.id===state.selectedId?'sel':''}" style="cursor:pointer">
       <td><span class="rank r${x.rank}">${x.rank}</span></td><td><span class="sw" style="background:${r.color}"></span>${r.num} · ${esc(label(r))}</td>
       <td>${sbar(x.score.total)}</td>${act.map(c=>`<td>${sbar(x.score[c.key])}</td>`).join('')}
-      <td>${km(r.lengthM)} km</td><td>${nf0.format(r.ascent)}</td><td>${w?pct(w.surf.paved):'–'}</td><td>${w?pct(w.traf[0]+w.traf[1]):'–'}</td><td>${w?pct(w.traf[3]):'–'}</td>
+      <td>${km(r.lengthM)} km</td><td>${(pl=>pl&&pl.T?`<span style="color:${pl.ok?'inherit':'var(--err)'}" title="${pl.ok?'machbar':'mit deinem Ø-Tempo zu knapp'}">${nf1.format(pl.vReq)} km/h${pl.ok?'':' ⚠'}</span>`:'–')(timePlan(r))}</td><td>${nf0.format(r.ascent)}</td><td>${w?pct(w.surf.paved):'–'}</td><td>${w?pct(w.traf[0]+w.traf[1]):'–'}</td><td>${w?pct(w.traf[3]):'–'}</td>
       <td>${r.way?nf0.format(r.way.maxGrad*100)+' %':'–'}</td>
       <td>${r.wx&&r.wx.avgHead!=null?`<span style="color:${r.wx.avgHead>=0.5?'var(--head)':r.wx.avgHead<=-0.5?'var(--tail)':'inherit'}">${r.wx.avgHead>0?'+':''}${nf1.format(r.wx.avgHead)}</span>`:'–'}</td>
       <td>${r.wx&&r.wx.rainMm!=null?nf1.format(r.wx.rainMm)+' mm':'–'}</td></tr>`; }).join('')}
@@ -1540,8 +1585,9 @@ function save(){
       profile:$('profile').value, customProfile:$('customProfile').value, server:$('server').value, customServer:$('customServer').value,
       startTime:$('startTime').value, speed:$('speed').value, hpd:$('hpd').value, wxMode:$('wxMode').value,
       routeColor:$('routeColor').value, showArrows:$('showArrows').checked, arrowsAll:$('arrowsAll').checked, optWeights:state.optWeights,
-      retDefault:$('retDefault').value, pauseAtTarget:$('pauseAtTarget').value,
-      targets:state.routes.map(r=>({lat:r.latlng.lat,lng:r.latlng.lng,name:r.name,retMode:r.retMode}))
+      retDefault:$('retDefault').value, maxDur:$('maxDur').value,
+      defaultPause:state.defaultPause??0,
+      targets:state.routes.map(r=>({lat:r.latlng.lat,lng:r.latlng.lng,name:r.name,retMode:r.retMode,pausePct:r.pausePct||0}))
     }));
   }catch{}
 }
@@ -1549,7 +1595,7 @@ function restore(){
   $('startTime').value=toLocalInput(new Date(nextFullHour()*1000));
   let s=null; try{ s=JSON.parse(localStorage.getItem(STORE_KEY)||'null'); }catch{}
   if(!s) return;
-  ['profile','customProfile','server','customServer','speed','hpd','wxMode','routeColor','retDefault','pauseAtTarget'].forEach(k=>{ if(s[k]!=null&&s[k]!=='') $(k).value=s[k]; });
+  ['profile','customProfile','server','customServer','speed','hpd','wxMode','routeColor','retDefault','maxDur'].forEach(k=>{ if(s[k]!=null&&s[k]!=='') $(k).value=s[k]; });
   if(s.showArrows!=null) $('showArrows').checked=s.showArrows;
   if(s.optWeights){ Object.assign(state.optWeights,s.optWeights); normalizeWeights(); }
   if(s.arrowsAll!=null) $('arrowsAll').checked=s.arrowsAll;
@@ -1558,7 +1604,8 @@ function restore(){
   if(s.radiusKm){ state.radiusKm=s.radiusKm; $('radius').value=s.radiusKm; }
   if(s.start){
     setStart(s.start,s.startName,{recompute:false});
-    (s.targets||[]).forEach(t=>addTarget(t,t.name,{retMode:t.retMode||'none'}));
+    if(s.defaultPause!=null) state.defaultPause=+s.defaultPause||0;
+    (s.targets||[]).forEach(t=>addTarget(t,t.name,{retMode:t.retMode||'none',pausePct:+t.pausePct||0}));
   }
 }
 
@@ -1589,7 +1636,7 @@ $('customServer').addEventListener('change',()=>{ save(); recalcAll(); });
 $('recalcBtn').onclick=recalcAll;
 $('retAll').onclick=()=>{ const v=$('retDefault').value; state.routes.forEach(r=>{ if((r.retMode||'none')!==v){ r.retMode=v; computeRoute(r); } }); save(); };
 $('retDefault').addEventListener('change',save);
-$('pauseAtTarget').addEventListener('change',()=>{ save(); scheduleWeather(150); });
+$('maxDur').addEventListener('change',()=>{ const h=maxDurationH(); if($('maxDur').value.trim()&&!h) $('maxDur').value=''; save(); scheduleWeather(150); renderAll(); });
 $('exportAllBtn').onclick=exportAll;
 $('clearBtn').onclick=()=>{ [...state.routes].forEach(r=>removeTarget(r.id)); };
 $('onlySel').addEventListener('change',renderChart);
