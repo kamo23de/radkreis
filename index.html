@@ -260,6 +260,10 @@
         <input type="number" id="hpd" min="1" max="24" step="0.5" value="24" title="24 = durchfahren; z. B. 10 = 10 h fahren, 14 h Pause">
       </div>
       <div>
+        <label for="pauseAtTarget">Pause am Ziel (h)</label>
+        <input type="number" id="pauseAtTarget" min="0" max="48" step="0.25" value="0.5" title="Aufenthalt am Wendepunkt vor dem Rückweg – wirkt auf Ankunftszeit und Wetter">
+      </div>
+      <div>
         <label for="wxMode">Datenbasis</label>
         <select id="wxMode">
           <option value="auto">Vorhersage (sonst Klima)</option>
@@ -292,6 +296,16 @@
       <button class="fix" id="targetSearchBtn">Suchen</button>
     </div>
     <ul class="geo-results" id="targetResults"></ul>
+    <div class="row" style="margin-top:8px;align-items:center">
+      <label for="retDefault" style="margin:0;flex:0 0 auto">↩ Rückweg</label>
+      <select id="retDefault" title="Gilt für neue Ziele; „für alle“ überträgt die Auswahl auf alle vorhandenen Routen">
+        <option value="none">kein Rückweg</option>
+        <option value="best">optimal berechnet</option>
+        <option value="same">gleiche Strecke zurück</option>
+        <option value="alt">andere Strecke zurück</option>
+      </select>
+      <button class="fix small" id="retAll" title="Auswahl auf alle Routen anwenden">für alle</button>
+    </div>
     <div class="row" style="margin-top:8px">
       <button id="exportAllBtn" disabled>⬇ Alle als GPX</button>
       <button id="recalcBtn" disabled>↻ Neu berechnen</button>
@@ -520,12 +534,12 @@ function serverList(){
   return [SERVERS.bikerouter, SERVERS.brouter];
 }
 const deadServers=new Set();
-async function fetchLeg(a,b,signal,{timeout=90000}={}){
+async function fetchLeg(a,b,signal,{timeout=90000,alt=0}={}){
   let servers=serverList();
   if($('server').value==='auto'){ const alive=servers.filter(s=>!deadServers.has(s.url)); if(alive.length) servers=alive; }
   let lastErr;
   for(const s of servers){
-    const url=`${s.url}?lonlats=${a.lng.toFixed(6)},${a.lat.toFixed(6)}|${b.lng.toFixed(6)},${b.lat.toFixed(6)}&profile=${encodeURIComponent(profileName())}&alternativeidx=0&format=geojson`;
+    const url=`${s.url}?lonlats=${a.lng.toFixed(6)},${a.lat.toFixed(6)}|${b.lng.toFixed(6)},${b.lat.toFixed(6)}&profile=${encodeURIComponent(profileName())}&alternativeidx=${alt}&format=geojson`;
     try{
       return await limit(async()=>{
         const tc=new AbortController(); let timedOut=false;
@@ -550,21 +564,21 @@ async function fetchLeg(a,b,signal,{timeout=90000}={}){
   throw lastErr;
 }
 const isPointProblem = e => /not mapped|island|position/i.test(e.message||'');
-async function routeLeg(a,b,signal,depth=0){
-  try{ return [await fetchLeg(a,b,signal)]; }
+async function routeLeg(a,b,signal,depth=0,alt=0){
+  try{ return [await fetchLeg(a,b,signal,{alt})]; }
   catch(e){
     if(e.name==='AbortError'||depth>=2||isPointProblem(e)||!e.server||haversine(a,b)<40e3) throw e;
     const m=interpolate(a,b,.5);
-    return [...await routeLeg(a,m,signal,depth+1), ...await routeLeg(m,b,signal,depth+1)];
+    return [...await routeLeg(a,m,signal,depth+1,alt), ...await routeLeg(m,b,signal,depth+1,alt)];
   }
 }
-async function computeLegs(pts,signal,onProgress){
+async function computeLegs(pts,signal,onProgress,alt=0){
   const n=pts.length-1, res=new Array(n), base=pts.map(p=>({...p}));
   const offsets=[25,-25,50,-50,90,-90].map(k=>k*1000), tries=new Array(pts.length).fill(0);
   const axis=bearing(base[0],base[n]);
   let todo=[...Array(n).keys()];
   for(let round=0; round<8 && todo.length; round++){
-    const results=await Promise.allSettled(todo.map(i=>routeLeg(pts[i],pts[i+1],signal).then(r=>{res[i]=r; onProgress&&onProgress(res.filter(Boolean).length,n); return r;})));
+    const results=await Promise.allSettled(todo.map(i=>routeLeg(pts[i],pts[i+1],signal,0,alt).then(r=>{res[i]=r; onProgress&&onProgress(res.filter(Boolean).length,n); return r;})));
     const next=new Set();
     for(let k=0;k<results.length;k++){
       const r=results[k], i=todo[k];
@@ -599,33 +613,79 @@ function climb(eles,T=5){
   for(const e of eles){ if(e==null) continue; if(ref==null){ref=e;continue;} if(e-ref>=T){up+=e-ref;ref=e;} else if(ref-e>=T){down+=ref-e;ref=e;} }
   return {up,down};
 }
+const RET_MODES={none:'kein Rückweg', best:'optimal berechnet', same:'gleiche Strecke zurück', alt:'andere Strecke zurück'};
+function legPoints(a,b){
+  const d=haversine(a,b); if(d<=SEGMENT_THRESHOLD_M) return [a,b];
+  const n=Math.ceil(d/LEG_M), pts=[]; for(let i=0;i<=n;i++) pts.push(i===0?a:i===n?b:interpolate(a,b,i/n)); return pts;
+}
+function joinLegs(legs){
+  const coords=[]; let len=0,time=0; const servers=new Set();
+  legs.forEach((L,k)=>{ (k?L.coords.slice(1):L.coords).forEach(p=>coords.push(p)); len+=+L.props['track-length']||0; time+=+L.props['total-time']||0; servers.add(L.server); });
+  return {coords,len,time,servers};
+}
+function overlapShare(outC,retC){ // Anteil des Rückwegs, der auf dem Hinweg verläuft (Raster ~40 m)
+  const key=p=>Math.round(p[1]*2500)+','+Math.round(p[0]*1600);
+  const set=new Set(); outC.forEach(p=>set.add(key(p)));
+  let hit=0,tot=0;
+  for(let i=1;i<retC.length;i++){ const d=haversine({lat:retC[i-1][1],lng:retC[i-1][0]},{lat:retC[i][1],lng:retC[i][0]}); tot+=d; if(set.has(key(retC[i]))) hit+=d; }
+  return tot?hit/tot:0;
+}
 async function computeRoute(r){
   if(!state.start) return;
   r.ctrl&&r.ctrl.abort();
   const ctrl=new AbortController(); r.ctrl=ctrl;
-  r.status='loading'; r.error=null; r.progress=null; r.samples=null; r.wx=null; renderAll();
+  r.status='loading'; r.error=null; r.progress=null; r.samples=null; r.wx=null; r.retError=null; renderAll();
+  const mode=r.retMode||'none';
   try{
     if(!isFinite(r.latlng.lat)||!isFinite(r.latlng.lng)) throw new Error('Ungültige Zielkoordinaten.');
     const a=state.start, b=r.latlng, d=haversine(a,b);
-    let pts=[a,b];
-    if(d>SEGMENT_THRESHOLD_M){ const n=Math.ceil(d/LEG_M); pts=[]; for(let i=0;i<=n;i++) pts.push(i===0?a:i===n?b:interpolate(a,b,i/n)); }
-    const legs=await computeLegs(pts,ctrl.signal,(done,n)=>{ if(n>1&&ctrl===r.ctrl){ r.progress=`${done}/${n} Etappen`; renderList(); }});
-    if(ctrl!==r.ctrl) return;
-    const coords=[]; let len=0,time=0; const servers=new Set();
-    legs.forEach((L,k)=>{ (k?L.coords.slice(1):L.coords).forEach(p=>coords.push(p)); len+=+L.props['track-length']||0; time+=+L.props['total-time']||0; servers.add(L.server); });
+    // Hinweg – bei unveränderten Eingaben aus dem Zwischenspeicher (z. B. wenn nur der Rückweg-Modus wechselt)
+    const outKey=[a.lat,a.lng,b.lat,b.lng,profileName(),$('server').value,$('customServer').value].join('|');
+    let outLegs=r._out&&r._out.key===outKey?r._out.legs:null;
+    if(!outLegs){
+      const pts=legPoints(a,b);
+      outLegs=await computeLegs(pts,ctrl.signal,(done,n)=>{ if(n>1&&ctrl===r.ctrl){ r.progress=`Hinweg ${done}/${n} Etappen`; renderList(); }});
+      if(ctrl!==r.ctrl) return;
+      r._out={key:outKey,legs:outLegs};
+    }
+    const out=joinLegs(outLegs);
+    let coords=out.coords, len=out.len||0, time=out.time, legsAll=outLegs, retLen=0, overlap=null;
+    const outCum=[0]; for(let i=1;i<out.coords.length;i++) outCum.push(outCum[i-1]+haversine({lat:out.coords[i-1][1],lng:out.coords[i-1][0]},{lat:out.coords[i][1],lng:out.coords[i][0]}));
+    if(!len) len=outCum[outCum.length-1];
+    const outLen=len;
+    // Rückweg
+    if(mode!=='none'){
+      let ret;
+      if(mode==='same'){
+        ret={coords:out.coords.slice().reverse(), len:outLen, time:out.time, servers:out.servers}; legsAll=outLegs.concat(outLegs); overlap=1;
+      } else {
+        const pts=legPoints(b,a);
+        const onP=(done,n)=>{ if(ctrl===r.ctrl){ r.progress=`Rückweg ${done}/${n} Etappe${n>1?'n':''}`; renderList(); }};
+        let retLegs;
+        try{ retLegs=await computeLegs(pts,ctrl.signal,onP,mode==='alt'?1:0); }
+        catch(e){ if(e.name==='AbortError') throw e; if(mode!=='alt') throw e; retLegs=await computeLegs(pts,ctrl.signal,onP,0); r.retError='Keine Alternative gefunden – optimaler Rückweg verwendet.'; }
+        if(ctrl!==r.ctrl) return;
+        ret=joinLegs(retLegs); legsAll=outLegs.concat(retLegs);
+        overlap=overlapShare(out.coords,ret.coords);
+      }
+      if(!ret.len){ let m=0; for(let i=1;i<ret.coords.length;i++) m+=haversine({lat:ret.coords[i-1][1],lng:ret.coords[i-1][0]},{lat:ret.coords[i][1],lng:ret.coords[i][0]}); ret.len=m; }
+      coords=out.coords.concat(ret.coords.slice(1)); retLen=ret.len; len=outLen+retLen; time=out.time+ret.time;
+    }
     const cum=[0]; for(let i=1;i<coords.length;i++) cum.push(cum[i-1]+haversine({lat:coords[i-1][1],lng:coords[i-1][0]},{lat:coords[i][1],lng:coords[i][0]}));
-    if(!len) len=cum[cum.length-1];
-    const scale=cum[cum.length-1]? len/cum[cum.length-1] : 1;
+    // Hin- und Rückweg getrennt auf die BRouter-Längen skalieren
+    const oi=out.coords.length-1, rawOut=cum[oi]||1, rawRet=(cum[cum.length-1]-cum[oi])||1;
+    const cumS=cum.map((x,i)=>i<=oi? x*outLen/rawOut : outLen+(x-cum[oi])*(retLen||rawRet)/rawRet);
     const eles=coords.map(p=>p.length>2?p[2]:null), valid=eles.filter(e=>e!=null);
     const {up,down}=climb(eles);
-    Object.assign(r,{status:'ok', coords, cum:cum.map(x=>x*scale), lengthM:len, timeS:time, ascent:up, descent:down,
-      maxEle:valid.length?Math.max(...valid):null, minEle:valid.length?Math.min(...valid):null, beeline:d, legs:legs.length, server:[...servers].join(', ')});
+    Object.assign(r,{status:'ok', coords, cum:cumS, lengthM:len, outLen, retLen, outIdx:oi, overlap, retModeUsed:mode, timeS:time, ascent:up, descent:down,
+      maxEle:valid.length?Math.max(...valid):null, minEle:valid.length?Math.min(...valid):null, beeline:d, legs:legsAll.length});
     buildSamples(r);
-    r.way=wayStats(r,legs);
+    r.way=wayStats(r,legsAll);
   }catch(e){
     if(e.name==='AbortError'||ctrl!==r.ctrl) return;
     r.status='error'; r.error=friendlyError(e); r.coords=null; r.way=null;
   }
+  r.progress=null;
   drawRoute(r); renderAll();
   if(r.status==='ok') scheduleWeather(200);
 }
@@ -655,6 +715,20 @@ function climYears(){ const Y=new Date().getUTCFullYear(); return Array.from({le
 
 function idxAt(cum,d){ let lo=0,hi=cum.length-1; while(lo<hi){const m=(lo+hi)>>1; if(cum[m]<d) lo=m+1; else hi=m;} return lo; }
 function ptAt(r,d){ const i=idxAt(r.cum,Math.max(0,Math.min(r.lengthM,d))); const p=r.coords[i]; return {lat:p[1],lng:p[0]}; }
+function buildTourSamples(r){ // je Richtung eigene Stützpunkte, damit die Fahrtrichtung am Wendepunkt stimmt
+  const W=1500;
+  const mk=(d0,d1,n)=>{ const a=[]; for(let k=0;k<=n;k++){ const d=d0+(d1-d0)*k/n, p=ptAt(r,d);
+    a.push({d, lat:p.lat, lng:p.lng, heading:headingBetween(r,Math.max(d0,d-W),Math.min(d1,d+W)), key:gridKey(p.lat,p.lng)}); } return a; };
+  const nO=Math.max(1,Math.round(r.outLen/Math.max(5000,r.lengthM/40))), nR=Math.max(1,Math.round(r.retLen/Math.max(5000,r.lengthM/40)));
+  const A=mk(0,r.outLen,nO), B=mk(r.outLen,r.lengthM,nR);
+  B[0].d=r.outLen+1;           // Rückweg-Start minimal hinter dem Wendepunkt (Pause greift)
+  r.samples=A.concat(B);
+}
+function headingBetween(r,dA,dB){ // Richtung zwischen zwei Distanzen, ohne den Wendepunkt zu überschreiten
+  const n=r.coords.length; let i0=Math.min(n-1,idxAt(r.cum,dA)), i1=Math.min(n-1,idxAt(r.cum,dB));
+  if(i1<=i0) i1=Math.min(n-1,i0+1); if(i1<=i0) i0=Math.max(0,i1-1);
+  const a=r.coords[i0], b=r.coords[i1]; return bearing({lat:a[1],lng:a[0]},{lat:b[1],lng:b[0]});
+}
 function headingAt(r,d,W=1500){ // Fahrtrichtung aus zwei sicher verschiedenen Punkten rund um d
   const n=r.coords.length; let i0=Math.max(0,idxAt(r.cum,d-W)-1), i1=Math.min(n-1,idxAt(r.cum,d+W));
   if(i1<=i0){ if(i1<n-1) i1=i0+1; else i0=Math.max(0,i1-1); }
@@ -662,6 +736,7 @@ function headingAt(r,d,W=1500){ // Fahrtrichtung aus zwei sicher verschiedenen P
   return bearing({lat:a[1],lng:a[0]},{lat:b[1],lng:b[0]});
 }
 function buildSamples(r){ // Stützpunkte entlang der Route (≤ ~40, mind. alle 5 km)
+  if(r.retLen) return buildTourSamples(r);
   const L=r.lengthM, n=Math.max(1,Math.round(L/Math.max(5000,L/40)));
   r.samples=[];
   for(let k=0;k<=n;k++){
@@ -726,7 +801,12 @@ function climAt(key,t,heading){ // Mittel über die letzten Jahre zur gleichen K
   return {ws:ws/n, wd:(deg(Math.atan2(u,v))+360)%360, g:g/n, p:p/n, pp:wet/n*100, tmp:tmp/n, hw:hw/n, src:'clim', years:n};
 }
 function wxAt(key,t,heading){ return (wxMode()!=='clim'&&fcAt(key,t,heading)) || climAt(key,t,heading); }
-function assignTimes(r,t0=startUnix()){ r.samples.forEach(s=>{ s.t=t0+elapsedH(s.d/1000)*3600; }); }
+const pauseH=()=>Math.min(48,Math.max(0,parseFloat($('pauseAtTarget').value)||0));
+function tourElapsedH(r,d){ // Fahrzeit bis Distanz d (m) inkl. Pause am Wendepunkt
+  if(!r.retLen||d<=r.outLen) return elapsedH(d/1000);
+  return elapsedH(r.outLen/1000)+pauseH()+elapsedH((d-r.outLen)/1000);
+}
+function assignTimes(r,t0=startUnix()){ r.samples.forEach(s=>{ s.t=t0+tourElapsedH(r,s.d)*3600; }); }
 function summarize(S){
   let wsum=0,hw=0,rain=0,wetKm=0,gmax=null,tmin=null,tmax=null,cov=0,clim=0;
   const sp=speedKmh();
@@ -772,7 +852,7 @@ function bestStartSeries(r){ // Score je möglicher Startstunde innerhalb des Vo
   if(!r||!r.samples||wxMode()==='clim') return null;
   const fs=r.samples.map(s=>fcCache.get(s.key)); if(fs.some(f=>!f||!f.n)) return null;
   const fEnd=Math.min(...fs.map(f=>f.t0+(f.n-1)*3600));
-  const offs=r.samples.map(s=>elapsedH(s.d/1000)*3600), dur=offs[offs.length-1];
+  const offs=r.samples.map(s=>tourElapsedH(r,s.d)*3600), dur=offs[offs.length-1];
   const out=[];
   for(let t=nextFullHour(); t+dur<=fEnd; t+=3600){
     const S=r.samples.map((s,i)=>({d:s.d, t:t+offs[i], wx:fcAt(s.key,t+offs[i],s.heading)}));
@@ -845,9 +925,10 @@ legend.addTo(map);
 /* ================================================================ Ziele verwalten */
 function pinIcon(r){ const rk=rankOf(r); return L.divIcon({className:'',html:`<div class="pin${r.status==='loading'?' loading':''}${rk===1?' best':''}" style="background:${r.color}">${r.num}${rk?`<span class="rk">#${rk}</span>`:''}</div>`,iconSize:[26,26],iconAnchor:[13,13]}); }
 function nextColor(){ const used=new Set(state.routes.map(r=>r.color)); return COLORS.find(c=>!used.has(c))||COLORS[state.counter%COLORS.length]; }
-function addTarget(ll,label,{compute=true}={}){
+function addTarget(ll,label,opts={}){
+  const compute=opts.compute!==false;
   if(!state.start){ setStart(ll,label); return; }
-  const r={id:'r'+(++state.counter), num:state.counter, color:nextColor(), latlng:{lat:ll.lat,lng:ll.lng}, name:label||null, status:'idle'};
+  const r={id:'r'+(++state.counter), num:state.counter, color:nextColor(), latlng:{lat:ll.lat,lng:ll.lng}, name:label||null, status:'idle', retMode:opts.retMode||$('retDefault').value};
   r.marker=L.marker([ll.lat,ll.lng],{icon:pinIcon(r),draggable:true,title:'Ziel – ziehen zum Verschieben, Rechtsklick zum Entfernen'}).addTo(map);
   r.marker.on('click',()=>select(r.id));
   r.marker.on('contextmenu',ev=>{L.DomEvent.preventDefault(ev); removeTarget(r.id);});
@@ -874,7 +955,13 @@ function select(id,{zoom=false}={}){
 function drawRoute(r){
   if(r.line){ map.removeLayer(r.line); r.line=null; }
   if(r.status==='ok'&&r.coords){
-    r.line=L.polyline(r.coords.map(p=>[p[1],p[0]]),{color:r.color,weight:4,opacity:.85}).addTo(map);
+    const ll=r.coords.map(p=>[p[1],p[0]]);
+    if(r.retLen&&r.outIdx){
+      r.line=L.featureGroup([
+        L.polyline(ll.slice(0,r.outIdx+1),{color:r.color,weight:4,opacity:.85}),
+        L.polyline(ll.slice(r.outIdx),{color:r.color,weight:4,opacity:.85,dashArray:'7 7'})
+      ]).addTo(map);
+    } else r.line=L.polyline(ll,{color:r.color,weight:4,opacity:.85}).addTo(map);
     r.line.on('click',ev=>{L.DomEvent.stopPropagation(ev); select(r.id);});
   }
 }
@@ -884,7 +971,7 @@ const label = r => r.name || `Ziel ${r.num}`;
 function gpxTrack(r,coords=r.coords){
   const pts=coords.map(p=>`<trkpt lat="${p[1].toFixed(6)}" lon="${p[0].toFixed(6)}">${p.length>2&&p[2]!=null?`<ele>${(+p[2]).toFixed(1)}</ele>`:''}</trkpt>`).join('\n');
   const wx=r.wx&&r.wx.avgHead!=null?` – Start ${fmtDT(startUnix())}: ${headTxt(r.wx.avgHead)}, Regen ${nf1.format(r.wx.rainMm)} mm`:'';
-  return `<trk><name>${esc(state.startName)} → ${esc(label(r))}</name><desc>${km(r.lengthM)} km, ${nf0.format(r.ascent)} hm ↑ – Profil ${esc(profileName())}${esc(wx)}</desc><type>cycling</type><trkseg>\n${pts}\n</trkseg></trk>`;
+  return `<trk><name>${esc(state.startName)} → ${esc(label(r))}${r.retLen?' → '+esc(state.startName):''}</name><desc>${km(r.lengthM)} km, ${nf0.format(r.ascent)} hm ↑ – Profil ${esc(profileName())}${esc(wx)}</desc><type>cycling</type><trkseg>\n${pts}\n</trkseg></trk>`;
 }
 function gpxDoc(routes,name,coordsFor=r=>r.coords){
   const wpts=[`<wpt lat="${state.start.lat.toFixed(6)}" lon="${state.start.lng.toFixed(6)}"><name>Start: ${esc(state.startName)}</name></wpt>`]
@@ -987,8 +1074,8 @@ function metrics(r){
     num:r.num, name:label(r), color:r.color, ok,
     beeline:haversine(state.start,r.latlng),
     length:ok?r.lengthM:null,
-    pctRadius:ok?r.lengthM/(state.radiusKm*1000)*100:null,
-    detour:ok?r.lengthM/Math.max(1,haversine(state.start,r.latlng)):null,
+    pctRadius:ok?(r.outLen||r.lengthM)/(state.radiusKm*1000)*100:null,
+    detour:ok?(r.outLen||r.lengthM)/Math.max(1,haversine(state.start,r.latlng)):null,
     ascent:ok?r.ascent:null, descent:ok?r.descent:null,
     hmPer100:ok&&r.lengthM?r.ascent/(r.lengthM/100e3):null,
     maxEle:ok?r.maxEle:null,
@@ -1020,12 +1107,12 @@ function renderList(){
     if(r.status==='loading') body=`<div class="hint"><span class="spin"></span> Route wird berechnet${r.progress?' – '+r.progress:''} …</div>`;
     else if(r.status==='error') body=`<div class="err">⚠ ${esc(r.error)}</div>`;
     else if(m.ok) body=`<div class="stats">
-        <div><span>Route</span><b>${km(r.lengthM)} km</b></div>
+        <div><span>${r.retLen?'Tour':'Route'}</span><b>${km(r.lengthM)} km</b>${r.retLen?`<span style="font-size:11px">${km(r.outLen)} hin + ${km(r.retLen)} zurück</span>`:''}</div>
         <div><span>Anstieg</span><b>${nf0.format(r.ascent)} m</b></div>
         <div><span>Abstieg</span><b>${nf0.format(r.descent)} m</b></div>
         <div><span>Luftlinie</span><b>${km(m.beeline)} km</b></div>
         <div><span>max. Höhe</span><b>${m.maxEle!=null?nf0.format(m.maxEle)+' m':'–'}</b></div>
-        <div><span>Fahrzeit*</span><b>${fmtTime(r.timeS)}</b></div></div>${wayRowHtml(r)}${wxRowHtml(r)}`;
+        <div><span>Fahrzeit*</span><b>${fmtTime(r.timeS)}</b></div></div>${retRowHtml(r)}${wayRowHtml(r)}${wxRowHtml(r)}`;
     return `<div class="card${r.id===state.selectedId?' sel':''}" style="--c:${r.color}" data-id="${r.id}">
       <div class="t"><span class="num">${r.num}</span>${rankOf(r)?`<span class="rkb r${rankOf(r)}" title="Rang in der Bewertung">#${rankOf(r)}</span>`:''}<span class="nm" title="${esc(label(r))}">${esc(label(r))}</span>
         ${outside?'<span class="badge warn" title="Ziel liegt außerhalb des Kreises">außerhalb</span>':''}
@@ -1037,17 +1124,21 @@ function renderList(){
         <button class="small svc komoot" data-act="komoot" ${m.ok?'':'disabled'} title="Route nach Komoot übertragen">→ Komoot</button>
         <button class="small svc garmin" data-act="garmin" ${m.ok?'':'disabled'} title="Route als Kurs nach Garmin Connect übertragen">→ Garmin</button>
         <button class="small" data-act="zoom">⌖ Zeigen</button>
+        <select class="small retSel" data-ret="${r.id}" title="Rückweg zum Start" style="width:auto;padding:3px 6px;font-size:12.5px;min-height:0">
+          ${Object.entries(RET_MODES).map(([k,v])=>`<option value="${k}" ${(r.retMode||'none')===k?'selected':''}>↩ ${v}</option>`).join('')}
+        </select>
         ${r.status==='error'?'<button class="small" data-act="retry">↻ Erneut</button>':''}
         <a class="small" href="${bikerouterLink(r)}" target="_blank" rel="noopener" style="font-size:12.5px;align-self:center;margin-left:2px">bikerouter.de ↗</a>
         <span style="flex:1"></span>
         <button class="small" data-act="del" title="Ziel entfernen">✕</button>
       </div></div>`;
   }).join('') + (state.routes.some(r=>r.status==='ok')?'<div class="hint">* Fahrzeit-Schätzung von BRouter (Profil-abhängig). Ankunft &amp; Wetter nutzen dein Ø-Tempo.</div>':'');
+  box.querySelectorAll('select[data-ret]').forEach(sel=>sel.onchange=()=>{ const r=state.routes.find(x=>x.id===sel.dataset.ret); if(!r) return; r.retMode=sel.value; save(); computeRoute(r); });
   box.querySelectorAll('.card').forEach(c=>{
     const id=c.dataset.id, r=state.routes.find(x=>x.id===id);
     c.onclick=e=>{
       const act=e.target.closest('[data-act]')?.dataset.act;
-      if(e.target.closest('a')) return;
+      if(e.target.closest('a')||e.target.closest('select')) return;
       if(act==='del') removeTarget(id);
       else if(act==='gpx') exportOne(r);
       else if(act==='komoot'||act==='garmin') sendTo(act,r);
@@ -1120,7 +1211,9 @@ function renderChart(){
     for(let i=0;i<n;i+=step){ const p=r.coords[i]; if(p.length>2&&p[2]!=null) data.push({x:r.cum[i]/1000,y:+p[2],lat:p[1],lng:p[0]}); }
     const last=r.coords[n-1]; if((n-1)%step&&last.length>2) data.push({x:r.cum[n-1]/1000,y:+last[2],lat:last[1],lng:last[0]});
     const sel=r.id===state.selectedId;
-    return {label:`${r.num} · ${label(r)} (${km(r.lengthM)} km, ${nf0.format(r.ascent)} hm)`, rid:r.id, data,
+    const turnKm=r.retLen?r.outLen/1000:null;
+    return {label:`${r.num} · ${label(r)} (${km(r.lengthM)} km${r.retLen?' inkl. Rückweg':''}, ${nf0.format(r.ascent)} hm)`, rid:r.id, data,
+      segment:turnKm?{borderDash:ctx=>ctx.p0.parsed.x>=turnKm?[6,4]:undefined}:undefined,
       borderColor:sel||rs.length===1?r.color:hexA(r.color,.55), backgroundColor:hexA(r.color,.15),
       borderWidth:sel?2.5:1.5, fill:sel?'origin':false, order:sel?0:1};
   });
@@ -1315,6 +1408,12 @@ const SURF_W={
   offroad:{paved:.85,rough:.6, good:1,   unpaved:.85, unknown:.8}
 };
 const pct=v=>v==null?'–':nf0.format(v*100)+' %';
+function retRowHtml(r){
+  if(!r.retLen) return '';
+  const ov=r.overlap!=null?nf0.format(r.overlap*100):'–';
+  const txt=r.retModeUsed==='same'?'Rückweg auf gleicher Strecke':`Rückweg ${r.overlap<0.15?'fast vollständig auf anderer Strecke':r.overlap<0.6?'teilweise auf anderer Strecke':'überwiegend auf dem Hinweg'} (${ov} % Überschneidung)`;
+  return `<div class="waysrow">↩ ${txt}, Länge ${km(r.retLen)} km${r.retLen&&r.outLen?` (${r.retLen>=r.outLen?'+':''}${nf1.format((r.retLen-r.outLen)/1000)} km ggü. Hinweg)`:''}${r.retError?` · <span style="color:var(--warn)">${esc(r.retError)}</span>`:''}</div>`;
+}
 function wayRowHtml(r){
   const w=r.way; if(!w||!w.total) return '';
   const quiet=w.traf[0]+w.traf[1];
@@ -1347,7 +1446,9 @@ function scoreRoute(r){
     o.weather=0.5*head+0.35*rain+0.15*clamp(comf);
   } else o.weather=null;
   o.beauty=w?clamp(88*(w.traf[0]+0.85*w.traf[1]+0.45*w.traf[2]+0.05*w.traf[3])+12*w.cycle):null;
-  o.efficiency=clamp(100-(r.lengthM/Math.max(1,haversine(state.start,r.latlng))-1)*150);
+  o.efficiency=clamp(100-((r.outLen||r.lengthM)/Math.max(1,haversine(state.start,r.latlng))-1)*150);
+  // Rückweg: Wiederholung derselben Strecke ist weniger abwechslungsreich
+  if(o.beauty!=null&&r.retLen&&r.overlap!=null) o.beauty=clamp(o.beauty-10*r.overlap);
   let sw=0,sum=0;
   CRITERIA.forEach(c=>{ const wt=+state.optWeights[c.key]||0; if(wt>0&&o[c.key]!=null){ sw+=wt; sum+=wt*o[c.key]; } });
   o.total=sw?sum/sw:null;
@@ -1439,7 +1540,8 @@ function save(){
       profile:$('profile').value, customProfile:$('customProfile').value, server:$('server').value, customServer:$('customServer').value,
       startTime:$('startTime').value, speed:$('speed').value, hpd:$('hpd').value, wxMode:$('wxMode').value,
       routeColor:$('routeColor').value, showArrows:$('showArrows').checked, arrowsAll:$('arrowsAll').checked, optWeights:state.optWeights,
-      targets:state.routes.map(r=>({lat:r.latlng.lat,lng:r.latlng.lng,name:r.name}))
+      retDefault:$('retDefault').value, pauseAtTarget:$('pauseAtTarget').value,
+      targets:state.routes.map(r=>({lat:r.latlng.lat,lng:r.latlng.lng,name:r.name,retMode:r.retMode}))
     }));
   }catch{}
 }
@@ -1447,7 +1549,7 @@ function restore(){
   $('startTime').value=toLocalInput(new Date(nextFullHour()*1000));
   let s=null; try{ s=JSON.parse(localStorage.getItem(STORE_KEY)||'null'); }catch{}
   if(!s) return;
-  ['profile','customProfile','server','customServer','speed','hpd','wxMode','routeColor'].forEach(k=>{ if(s[k]!=null&&s[k]!=='') $(k).value=s[k]; });
+  ['profile','customProfile','server','customServer','speed','hpd','wxMode','routeColor','retDefault','pauseAtTarget'].forEach(k=>{ if(s[k]!=null&&s[k]!=='') $(k).value=s[k]; });
   if(s.showArrows!=null) $('showArrows').checked=s.showArrows;
   if(s.optWeights){ Object.assign(state.optWeights,s.optWeights); normalizeWeights(); }
   if(s.arrowsAll!=null) $('arrowsAll').checked=s.arrowsAll;
@@ -1456,7 +1558,7 @@ function restore(){
   if(s.radiusKm){ state.radiusKm=s.radiusKm; $('radius').value=s.radiusKm; }
   if(s.start){
     setStart(s.start,s.startName,{recompute:false});
-    (s.targets||[]).forEach(t=>addTarget(t,t.name));
+    (s.targets||[]).forEach(t=>addTarget(t,t.name,{retMode:t.retMode||'none'}));
   }
 }
 
@@ -1485,6 +1587,9 @@ $('customProfile').addEventListener('change',()=>{ save(); recalcAll(); });
 $('server').addEventListener('change',()=>{ toggleCustom(); save(); if($('server').value!=='custom') recalcAll(); });
 $('customServer').addEventListener('change',()=>{ save(); recalcAll(); });
 $('recalcBtn').onclick=recalcAll;
+$('retAll').onclick=()=>{ const v=$('retDefault').value; state.routes.forEach(r=>{ if((r.retMode||'none')!==v){ r.retMode=v; computeRoute(r); } }); save(); };
+$('retDefault').addEventListener('change',save);
+$('pauseAtTarget').addEventListener('change',()=>{ save(); scheduleWeather(150); });
 $('exportAllBtn').onclick=exportAll;
 $('clearBtn').onclick=()=>{ [...state.routes].forEach(r=>removeTarget(r.id)); };
 $('onlySel').addEventListener('change',renderChart);
