@@ -114,11 +114,6 @@
   #modal .btns{display:flex;flex-direction:column;gap:8px;margin:10px 0}
   #modal .btns button{width:100%;text-align:left}
   #modal .note{font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
-  #optBtn{width:100%;margin-top:8px;font-weight:600}
-  #optBar{position:absolute;z-index:650;top:calc(12px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);display:none;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;
-    background:rgba(17,24,39,.92);color:#fff;padding:8px 12px;border-radius:10px;font-size:13.5px;box-shadow:0 2px 10px rgba(0,0,0,.3);max-width:94%}
-  #optBar.on{display:flex}
-  #optBar button{padding:4px 10px;font-size:12.5px;min-height:0}
   .crit{border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin:7px 0}
   .crit.main{border-color:var(--accent);background:var(--accent-weak)}
   .crit .h{display:flex;align-items:center;gap:8px;font-weight:600}
@@ -136,6 +131,10 @@
   .pin.best{box-shadow:0 0 0 3px #f5c518,0 1px 4px rgba(0,0,0,.45)}
   .waysrow{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:5px;font-size:12.5px;color:var(--text)}
   #rankPane .weights{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin-bottom:8px;font-size:12.5px}
+  #rankPane .weights select{width:auto;padding:3px 6px;min-height:0;font-size:12.5px}
+  #rankPane .wsum{font-weight:700;padding:2px 8px;border-radius:10px;background:var(--accent-weak);color:var(--accent)}
+  .card .rkb{font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;background:#e3e6eb}
+  .card .rkb.r1{background:#f5c518}.card .rkb.r2{background:#cfd4da}.card .rkb.r3{background:#e3a46b}
   #rankPane .weights label{display:inline-flex;gap:6px;align-items:center;margin:0;color:var(--text)}
   #rankPane .weights input[type=range]{width:110px}
   .wx{position:relative}
@@ -170,7 +169,6 @@
     body.side-open #backdrop{display:block;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.25)}
     #menuBtn,#closeSide{display:inline-block}
     #mapMsg{top:calc(58px + env(safe-area-inset-top))}
-    #optBar{top:calc(58px + env(safe-area-inset-top))}
     #bottom{height:260px}
     .wxpane{flex-direction:column}
     .wxpane > div{min-height:200px}
@@ -299,8 +297,7 @@
       <button id="recalcBtn" disabled>↻ Neu berechnen</button>
       <button id="clearBtn" disabled>✕ Alle entfernen</button>
     </div>
-    <button id="optBtn" class="primary">🎯 Routenoptimierung</button>
-    <div class="hint">Klick auf die Karte setzt ein Ziel. Marker lassen sich verschieben; Rechtsklick (bzw. langes Drücken) auf einen Marker oder ✕ in der Liste entfernt ihn.</div>
+    <div class="hint">Klick auf die Karte setzt ein Ziel. Marker lassen sich verschieben; Rechtsklick (bzw. langes Drücken) auf einen Marker oder ✕ in der Liste entfernt ihn. Alle Routen werden automatisch bewertet – Rangliste und Gewichtung im Tab „🏆 Ranking“.</div>
   </section>
 
   <div id="routes"></div>
@@ -312,7 +309,6 @@
   <div id="mapBox">
     <div id="map"></div>
     <button id="menuBtn" title="Einstellungen &amp; Routen">☰ Routen</button>
-    <div id="optBar"></div>
     <div id="mapMsg">Startpunkt wählen: Ort suchen, Standort nutzen oder in die Karte klicken.</div>
   </div>
   <div id="bottom">
@@ -436,7 +432,6 @@ function setMsg(t){ const el=$('mapMsg'); el.style.display=t?'block':'none'; if(
 map.on('click', e => {
   const ll={lat:e.latlng.lat, lng:((e.latlng.lng+540)%360)-180};
   if(state.pickStart || !state.start){ state.pickStart=false; $('pickStartBtn').classList.remove('active'); setStart(ll); }
-  else if(state.opt&&state.opt.phase==='placing') optPlace(ll);
   else addTarget(ll);
 });
 
@@ -555,22 +550,6 @@ async function fetchLeg(a,b,signal,{timeout=90000}={}){
   throw lastErr;
 }
 const isPointProblem = e => /not mapped|island|position/i.test(e.message||'');
-// Versatz-Kandidaten für Endpunkte auf dem Kreis: [Winkelversatz in °, km nach innen]
-const SNAP_TRIES=[[0,0],[5,0],[-5,0],[10,0],[-10,0],[15,0],[-15,0],[0,15],[0,40],[20,10],[-20,10],[0,80]];
-async function probePoint(p,signal){ // kurzer Testrouting-Abschnitt Richtung Start: liegt der Punkt am Wegenetz?
-  try{ await fetchLeg(p,destination(p,bearing(p,state.start),1500),signal,{timeout:20000}); return true; }
-  catch(e){ if(e.name==='AbortError') throw e; return !isPointProblem(e) && !/timeout|Zeit/i.test(e.message); }
-}
-async function findReachable(r,signal){
-  const brg=r.snapBearing??(r.snapBearing=bearing(state.start,r.latlng));
-  for(let i=r.snapIdx||0;i<SNAP_TRIES.length;i++){
-    const [dOff,kIn]=SNAP_TRIES[i];
-    const p=destination(state.start,brg+dOff,Math.max(1000,state.radiusKm*1000-kIn*1000));
-    if(await probePoint(p,signal)){ r.snapIdx=i; return p; }
-  }
-  r.snapIdx=SNAP_TRIES.length;
-  return null;
-}
 async function routeLeg(a,b,signal,depth=0){
   try{ return [await fetchLeg(a,b,signal)]; }
   catch(e){
@@ -626,16 +605,6 @@ async function computeRoute(r){
   const ctrl=new AbortController(); r.ctrl=ctrl;
   r.status='loading'; r.error=null; r.progress=null; r.samples=null; r.wx=null; renderAll();
   try{
-    if(r.optSnap && !r.snapOk){ // Endpunkt auf dem Kreis: erreichbaren Punkt in der Nähe suchen
-      r.progress='prüfe Endpunkt'; renderList();
-      const p=await findReachable(r,ctrl.signal);
-      if(ctrl!==r.ctrl) return;
-      r.snapOk=true;
-      if(p && (Math.abs(p.lat-r.latlng.lat)>1e-7||Math.abs(p.lng-r.latlng.lng)>1e-7)){
-        r.latlng={lat:p.lat,lng:p.lng}; r.marker.setLatLng([p.lat,p.lng]); r.name=null; nameTarget(r); r.snapMoved=true;
-      }
-      r.progress=null;
-    }
     if(!isFinite(r.latlng.lat)||!isFinite(r.latlng.lng)) throw new Error('Ungültige Zielkoordinaten.');
     const a=state.start, b=r.latlng, d=haversine(a,b);
     let pts=[a,b];
@@ -655,10 +624,6 @@ async function computeRoute(r){
     r.way=wayStats(r,legs);
   }catch(e){
     if(e.name==='AbortError'||ctrl!==r.ctrl) return;
-    if(r.optSnap && isPointProblem(e) && (r.snapIdx??0)<SNAP_TRIES.length-1){
-      r.snapIdx=(r.snapIdx??0)+1; r.snapOk=false;
-      return computeRoute(r);
-    }
     r.status='error'; r.error=friendlyError(e); r.coords=null; r.way=null;
   }
   drawRoute(r); renderAll();
@@ -886,7 +851,7 @@ function addTarget(ll,label,{compute=true}={}){
   r.marker=L.marker([ll.lat,ll.lng],{icon:pinIcon(r),draggable:true,title:'Ziel – ziehen zum Verschieben, Rechtsklick zum Entfernen'}).addTo(map);
   r.marker.on('click',()=>select(r.id));
   r.marker.on('contextmenu',ev=>{L.DomEvent.preventDefault(ev); removeTarget(r.id);});
-  r.marker.on('dragend',()=>{const p=r.marker.getLatLng(); r.optSnap=false; r.latlng={lat:p.lat,lng:((p.lng+540)%360)-180}; r.name=null; nameTarget(r); computeRoute(r); save();});
+  r.marker.on('dragend',()=>{const p=r.marker.getLatLng(); r.latlng={lat:p.lat,lng:((p.lng+540)%360)-180}; r.name=null; nameTarget(r); computeRoute(r); save();});
   state.routes.push(r); state.selectedId=r.id;
   if(!r.name) nameTarget(r);
   if(compute) computeRoute(r);
@@ -898,7 +863,6 @@ function removeTarget(id){
   const r=state.routes[i]; r.ctrl&&r.ctrl.abort();
   map.removeLayer(r.marker); r.line&&map.removeLayer(r.line);
   state.routes.splice(i,1);
-  if(state.opt){ state.opt.ids=state.opt.ids.filter(x=>x!==id); if(state.opt.phase==='placing') updateOptBar(); }
   if(state.selectedId===id) state.selectedId=state.routes.length?state.routes[state.routes.length-1].id:null;
   map.removeLayer(hoverMarker); save(); renderAll();
 }
@@ -1063,10 +1027,10 @@ function renderList(){
         <div><span>max. Höhe</span><b>${m.maxEle!=null?nf0.format(m.maxEle)+' m':'–'}</b></div>
         <div><span>Fahrzeit*</span><b>${fmtTime(r.timeS)}</b></div></div>${wayRowHtml(r)}${wxRowHtml(r)}`;
     return `<div class="card${r.id===state.selectedId?' sel':''}" style="--c:${r.color}" data-id="${r.id}">
-      <div class="t"><span class="num">${r.num}</span><span class="nm" title="${esc(label(r))}">${esc(label(r))}</span>
+      <div class="t"><span class="num">${r.num}</span>${rankOf(r)?`<span class="rkb r${rankOf(r)}" title="Rang in der Bewertung">#${rankOf(r)}</span>`:''}<span class="nm" title="${esc(label(r))}">${esc(label(r))}</span>
         ${outside?'<span class="badge warn" title="Ziel liegt außerhalb des Kreises">außerhalb</span>':''}
         ${over&&!outside?'<span class="badge warn" title="Route ist länger als der Radius">&gt; Radius</span>':''}
-        ${r.status==='error'?'<span class="badge err">Fehler</span>':''}${r.snapMoved?'<span class="badge" title="Der Punkt auf dem Kreis lag abseits von Wegen und wurde zum nächsten erreichbaren Punkt verschoben">verschoben</span>':''}</div>
+        ${r.status==='error'?'<span class="badge err">Fehler</span>':''}</div>
       ${body}
       <div class="acts">
         <button class="small" data-act="gpx" ${m.ok?'':'disabled'}>⬇ GPX</button>
@@ -1088,7 +1052,7 @@ function renderList(){
       else if(act==='gpx') exportOne(r);
       else if(act==='komoot'||act==='garmin') sendTo(act,r);
       else if(act==='zoom') select(id,{zoom:true});
-      else if(act==='retry'){ r.snapOk=false; r.snapIdx=0; computeRoute(r); }
+      else if(act==='retry') computeRoute(r);
       else select(id);
     };
   });
@@ -1273,7 +1237,6 @@ function renderWxStatus(){
    Endpunkte (max. 10) auf dem Umkreis setzen, Routen nach gewichteten Kriterien bewerten und ranken.
    Datengrundlage: BRouter-Wegeattribute (highway, surface, smoothness, tracktype, maxspeed, cycleway,
    route_bicycle_*), Höhenprofil und die Wetterauswertung entlang der Route. */
-const OPT_MAX=10;
 const CRITERIA=[
   {key:'profile',   icon:'⛰',  name:'Streckenprofil & Untergrund',
    desc:'Wenig Höhenmeter und Steilstücke, Belag passend zum gewählten Radprofil (Rennrad: Asphalt, Gravel/MTB: Schotter in Ordnung).'},
@@ -1291,7 +1254,6 @@ const PRESETS={
   efficiency:{profile:20,weather:20,beauty:20,efficiency:40}
 };
 state.optWeights={...PRESETS.beauty};
-state.opt=null;          // {n, ids, snap, phase:'placing'|'ready'|'waiting'|'done'}
 state.ranking=null;      // [{id,rank,score}]
 
 /* ---- Wegeattribute aus den BRouter-Meldungen */
@@ -1392,198 +1354,43 @@ function scoreRoute(r){
   o.missing=CRITERIA.filter(c=>(+state.optWeights[c.key]||0)>0&&o[c.key]==null).map(c=>c.name);
   return o;
 }
-function optRoutes(){
-  const ids=state.opt&&state.opt.ids.length?state.opt.ids:state.routes.map(r=>r.id);
-  return state.routes.filter(r=>ids.includes(r.id));
-}
 function computeRanking(){
-  const rs=optRoutes().filter(r=>r.status==='ok');
+  const rs=state.routes.filter(r=>r.status==='ok');
   const scored=rs.map(r=>({id:r.id,r,score:scoreRoute(r)})).filter(x=>x.score.total!=null)
     .sort((a,b)=>b.score.total-a.score.total);
   scored.forEach((x,i)=>x.rank=i+1);
   return scored;
 }
-function rankOf(r){ if(!state.ranking) return null; const x=state.ranking.find(e=>e.id===r.id); return x?x.rank:null; }
+function rankOf(r){ if(!state.ranking||state.ranking.length<2) return null; const x=state.ranking.find(e=>e.id===r.id); return x?x.rank:null; }
 function scoreColor(v){ return v>=70?'#2e9d4f':v>=50?'#8bbf3c':v>=35?'#f0a020':'#d9534f'; }
 const sbar=v=>v==null?'<span style="color:var(--muted)">–</span>':`<div class="sbar"><i style="width:${clamp(v)}%;background:${scoreColor(v)}"></i><span>${nf0.format(v)}</span></div>`;
 
-/* ---- Ablauf */
-function optOpen(){
-  if(!state.start){ setMsg('Bitte zuerst einen Startpunkt setzen.'); return; }
-  if(typeof openSide==='function') openSide(false);
-  const has=state.routes.length;
-  $('modalBox').innerHTML=`
-    <h3>🎯 Routenoptimierung</h3>
-    <div class="sub">Setze bis zu ${OPT_MAX} Endpunkte auf dem Umkreis (${nf0.format(state.radiusKm)} km um ${esc(state.startName)}). Danach werden die Routen nach deinen Prioritäten bewertet und gerankt.</div>
-    <label for="optN">Anzahl Endpunkte (2–${OPT_MAX})</label>
-    <div class="row"><button class="fix" id="optMinus">−</button><input type="number" id="optN" min="2" max="${OPT_MAX}" value="${Math.min(OPT_MAX,Math.max(2,state.opt?state.opt.n:5))}" style="text-align:center"><button class="fix" id="optPlus">+</button></div>
-    <label class="inline"><input type="checkbox" id="optSnap" checked> Punkte auf dem Umkreis einrasten</label><br>
-    ${has?`<label class="inline"><input type="checkbox" id="optClear" checked> bestehende ${has} Ziel${has>1?'e':''} vorher entfernen</label>`:''}
-    <div class="btns">
-      <button class="primary" id="optGo">📍 Endpunkte auf der Karte setzen</button>
-      <button id="optAuto">⟳ Gleichmäßig auf dem Kreis verteilen</button>
-      <button id="optCancel">Abbrechen</button>
-    </div>
-    <div class="note">Tipp: Beim manuellen Setzen genügt ein Tipp in die ungefähre Richtung – der Punkt rastet auf dem Kreis ein. Liegt er im Wasser oder abseits von Wegen, wird er automatisch etwas nach innen verschoben.</div>`;
-  $('modal').classList.add('on');
-  const n=$('optN'), clampN=()=>{ n.value=Math.min(OPT_MAX,Math.max(2,parseInt(n.value,10)||2)); };
-  $('optMinus').onclick=()=>{ n.value=(+n.value||2)-1; clampN(); };
-  $('optPlus').onclick=()=>{ n.value=(+n.value||2)+1; clampN(); };
-  n.addEventListener('change',clampN);
-  const begin=auto=>{
-    clampN();
-    if($('optClear')&&$('optClear').checked) [...state.routes].forEach(r=>removeTarget(r.id));
-    state.opt={n:+n.value, ids:[], snap:$('optSnap').checked, phase:'placing'}; state.ranking=null;
-    closeModal(); fitCircle();
-    if(auto) optDistribute(); else updateOptBar();
-    renderAll();
-  };
-  $('optGo').onclick=()=>begin(false);
-  $('optAuto').onclick=()=>begin(true);
-  $('optCancel').onclick=closeModal;
-}
-function snapToCircle(ll){ return destination(state.start,bearing(state.start,ll),state.radiusKm*1000); }
-function optAdd(ll){
-  const snap=state.opt.snap, p=snap?snapToCircle(ll):ll;
-  addTarget(p,null,{compute:false});
-  const r=state.routes[state.routes.length-1]; r.optSnap=snap; state.opt.ids.push(r.id);
-  computeRoute(r);
-}
-function optPlace(ll){
-  if(!state.opt||state.opt.phase!=='placing') return;
-  optAdd(ll);
-  if(state.opt.ids.length>=state.opt.n) optReady(); else updateOptBar();
-}
-function optDistribute(){ // fehlende Punkte gleichmäßig verteilen, beginnend in Norden bzw. am ersten Punkt
-  const o=state.opt, placed=o.ids.map(id=>state.routes.find(r=>r.id===id)).filter(Boolean);
-  const base=placed.length?bearing(state.start,placed[0].latlng):0;
-  const used=placed.map(r=>bearing(state.start,r.latlng));
-  const slots=[]; for(let k=0;k<o.n;k++) slots.push((base+360*k/o.n)%360);
-  const angDist=(a,b)=>{ const d=Math.abs(a-b)%360; return d>180?360-d:d; };
-  const free=slots.filter(a=>!used.some(u=>angDist(u,a)<180/o.n));
-  const snapWas=o.snap; o.snap=true;
-  for(const a of free){ if(o.ids.length>=o.n) break; optAdd(destination(state.start,a,state.radiusKm*1000)); }
-  o.snap=snapWas;
-  if(o.ids.length>=o.n) optReady(); else updateOptBar();
-}
-function updateOptBar(){
-  const bar=$('optBar'), o=state.opt;
-  if(!o||o.phase==='done'){ bar.classList.remove('on'); return; }
-  bar.classList.add('on');
-  if(o.phase==='placing'){
-    bar.innerHTML=`🎯 Endpunkt <b>${o.ids.length+1}</b> von ${o.n}: ${isTouch?'tippe':'klicke'} in die Karte
-      <button id="obAuto">Rest verteilen</button>${o.ids.length?'<button id="obUndo">↶</button>':''}<button id="obCancel">Abbrechen</button>`;
-    $('obAuto').onclick=optDistribute;
-    if($('obUndo')) $('obUndo').onclick=()=>removeTarget(o.ids[o.ids.length-1]);
-    $('obCancel').onclick=optCancel;
-    setMsg('');
-  } else if(o.phase==='ready'){
-    bar.innerHTML=`🎯 ${o.ids.length} Endpunkte gesetzt <button id="obStart">Optimierung starten …</button><button id="obCancel">Abbrechen</button>`;
-    $('obStart').onclick=optPriorities; $('obCancel').onclick=optCancel;
-  } else if(o.phase==='waiting'){
-    const rs=optRoutes(), done=rs.filter(r=>r.status!=='loading').length;
-    bar.innerHTML=`<span class="spin"></span> Routen ${done}/${rs.length} berechnet${wxInfo.state==='loading'?' · Wetter wird geladen':''} …${done>=2?'<button id="obNow">Mit fertigen ranken</button>':''}<button id="obCancel">Abbrechen</button>`;
-    $('obCancel').onclick=optCancel;
-    if($('obNow')) $('obNow').onclick=()=>{ o.forceRank=true; };
+/* ---- Gewichtung: Summe aller Gewichte höchstens 100 % */
+const wSum=()=>CRITERIA.reduce((a,c)=>a+(+state.optWeights[c.key]||0),0);
+function setWeight(key,val){ // erhöht ein Gewicht; die übrigen werden bei Bedarf anteilig gekürzt
+  const W=state.optWeights; W[key]=clamp(Math.round(val/5)*5);
+  const others=CRITERIA.map(c=>c.key).filter(k=>k!==key), rest=100-W[key];
+  const sumO=others.reduce((a,k)=>a+(+W[k]||0),0);
+  if(sumO>rest){
+    others.forEach(k=>{ W[k]=sumO?Math.floor((+W[k]||0)*rest/sumO/5)*5:0; });
+    let left=rest-others.reduce((a,k)=>a+W[k],0);           // Rundungsrest dem größten übrigen Gewicht geben
+    const big=others.slice().sort((a,b)=>W[b]-W[a])[0];
+    if(left>0&&W[big]>0) W[big]+=left;
   }
 }
-function optCancel(){ if(state.opt) state.opt.phase='done'; clearInterval(optTimer); updateOptBar(); closeModal(); renderAll(); }
-function optReady(){ state.opt.phase='ready'; updateOptBar(); optPriorities(); }
-function critHtml(main){
-  return CRITERIA.map(c=>`<div class="crit${c.key===main?' main':''}" data-k="${c.key}">
-    <div class="h"><input type="radio" name="optMain" value="${c.key}" ${c.key===main?'checked':''} id="pm_${c.key}"><label for="pm_${c.key}" style="margin:0;color:inherit;font-size:14px">${c.icon} ${c.name}</label><span class="w" id="wv_${c.key}">${state.optWeights[c.key]} %</span></div>
-    <div class="d">${c.desc}</div>
-    <input type="range" min="0" max="100" step="5" value="${state.optWeights[c.key]}" data-w="${c.key}" aria-label="Gewicht ${c.name}">
-  </div>`).join('');
-}
-function mainCrit(){ return CRITERIA.reduce((a,c)=>(+state.optWeights[c.key]||0)>(+state.optWeights[a.key]||0)?c:a).key; }
-function optPriorities(){
-  const rs=optRoutes(), done=rs.filter(r=>r.status!=='loading').length;
-  $('modalBox').innerHTML=`
-    <h3>Optimale Route ermitteln?</h3>
-    <div class="sub">${rs.length} Endpunkte gesetzt · ${done}/${rs.length} Routen bereits berechnet · Start ${fmtDT(startUnix())}, Profil „${esc(profileName())}“</div>
-    <div style="font-weight:600;font-size:13px;margin-top:4px">Hauptpriorität wählen, Gewichte bei Bedarf feinjustieren:</div>
-    <div id="critBox">${critHtml(mainCrit())}</div>
-    <div class="btns">
-      <button class="primary" id="optRun">🏆 Optimale Route ermitteln</button>
-      <button id="optBack">Abbrechen</button>
-    </div>
-    <div class="note">Gewichte werden relativ zueinander verrechnet (Summe muss nicht 100 % sein). Kriterien ohne Daten (z. B. Wetter jenseits des Vorhersagezeitraums ohne Klimadaten) werden übersprungen.</div>`;
-  $('modal').classList.add('on');
-  wireCrit($('critBox'),()=>{});
-  $('optRun').onclick=()=>{ closeModal(); optRun(); };
-  $('optBack').onclick=()=>{ closeModal(); updateOptBar(); };
-}
-function wireCrit(box,onChange){
-  box.querySelectorAll('input[name=optMain]').forEach(rb=>rb.onchange=()=>{
-    Object.assign(state.optWeights,PRESETS[rb.value]);
-    box.querySelectorAll('.crit').forEach(el=>{ el.classList.toggle('main',el.dataset.k===rb.value); const k=el.dataset.k; el.querySelector('input[type=range]').value=state.optWeights[k]; $('wv_'+k).textContent=state.optWeights[k]+' %'; });
-    save(); onChange();
-  });
-  box.querySelectorAll('input[data-w]').forEach(sl=>sl.oninput=()=>{
-    state.optWeights[sl.dataset.w]=+sl.value; $('wv_'+sl.dataset.w).textContent=sl.value+' %';
-    const m=mainCrit(); box.querySelectorAll('.crit').forEach(el=>el.classList.toggle('main',el.dataset.k===m));
-    box.querySelectorAll('input[name=optMain]').forEach(rb=>rb.checked=rb.value===m);
-    save(); onChange();
-  });
-}
-let optTimer=null;
-function optRun(){
-  const o=state.opt||(state.opt={n:state.routes.length,ids:state.routes.map(r=>r.id),snap:false});
-  o.phase='waiting'; o.forceRank=false; updateOptBar();
-  const t0=Date.now();
-  clearInterval(optTimer);
-  optTimer=setInterval(()=>{
-    const rs=optRoutes();
-    const routing=rs.some(r=>r.status==='loading');
-    const wxPending=wxInfo.state==='loading'||rs.some(r=>r.status==='ok'&&!r.wx&&wxInfo.state!=='error');
-    updateOptBar();
-    if((routing||wxPending)&&Date.now()-t0<900e3&&!o.forceRank) return;
-    clearInterval(optTimer);
-    o.phase='done'; updateOptBar();
-    state.ranking=computeRanking();
-    renderAll(); showRankingResult();
-  },600);
-}
-function showTab(id){ const b=document.querySelector(`#tabs [data-pane="${id}"]`); if(b) b.click(); }
-function showRankingResult(){
-  const R=state.ranking||[], failed=optRoutes().filter(r=>r.status==='error').length;
-  if(!R.length){
-    $('modalBox').innerHTML=`<h3>Kein Ranking möglich</h3><div class="sub">Keine der Routen konnte berechnet werden.</div><div class="btns"><button id="mClose">Schließen</button></div>`;
-    $('modal').classList.add('on'); $('mClose').onclick=closeModal; return;
-  }
-  const best=R[0];
-  select(best.id); 
-  const grp=L.featureGroup(R.map(x=>x.r.line).filter(Boolean)); if(grp.getLayers().length) map.fitBounds(grp.getBounds(),{padding:[30,30]});
-  const wts=CRITERIA.filter(c=>+state.optWeights[c.key]>0).map(c=>`${c.icon} ${state.optWeights[c.key]} %`).join(' · ');
-  $('modalBox').innerHTML=`
-    <h3>🏆 Ergebnis: Route ${best.r.num} – ${esc(label(best.r))}</h3>
-    <div class="sub">Gewichtung: ${wts}${failed?` · ${failed} Route(n) nicht berechenbar`:''}</div>
-    <table><thead><tr><th>Rang</th><th>Ziel</th><th>Gesamt</th>${CRITERIA.filter(c=>+state.optWeights[c.key]>0).map(c=>`<th title="${c.name}">${c.icon}</th>`).join('')}</tr></thead><tbody>
-    ${R.map(x=>`<tr data-id="${x.id}" style="cursor:pointer"><td><span class="rank r${x.rank}">${x.rank}</span></td><td><span class="sw" style="background:${x.r.color}"></span>${esc(label(x.r))}<br><span style="color:var(--muted);font-size:11.5px">${km(x.r.lengthM)} km · ${nf0.format(x.r.ascent)} hm</span></td>
-      <td>${sbar(x.score.total)}</td>${CRITERIA.filter(c=>+state.optWeights[c.key]>0).map(c=>`<td>${sbar(x.score[c.key])}</td>`).join('')}</tr>`).join('')}
-    </tbody></table>
-    ${best.score.missing.length?`<div class="hint">Ohne Daten und daher nicht berücksichtigt: ${best.score.missing.join(', ')}.</div>`:''}
-    <div class="btns">
-      <button class="primary" id="mBest">Beste Route anzeigen</button>
-      <button id="mTab">Details im Ranking-Tab</button>
-      <button id="mClose">Schließen</button>
-    </div>`;
-  $('modal').classList.add('on');
-  $('modalBox').querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>{ closeModal(); select(tr.dataset.id,{zoom:true}); });
-  $('mBest').onclick=()=>{ closeModal(); select(best.id,{zoom:true}); };
-  $('mTab').onclick=()=>{ closeModal(); showTab('rankPane'); };
-  $('mClose').onclick=closeModal;
-}
+function normalizeWeights(){ const S=wSum(); if(S>100) CRITERIA.forEach(c=>{ state.optWeights[c.key]=Math.floor((+state.optWeights[c.key]||0)*100/S/5)*5; }); }
+const mainCrit=()=>CRITERIA.reduce((a,c)=>(+state.optWeights[c.key]||0)>(+state.optWeights[a.key]||0)?c:a).key;
+
 function renderRanking(){
   const pane=$('rankPane'); if(!pane) return;
-  const rs=optRoutes().filter(r=>r.status==='ok');
-  if(state.ranking) state.ranking=computeRanking();   // live neu bewerten (Gewichte, Wetter, Startzeit)
+  const rs=state.routes.filter(r=>r.status==='ok');
   const R=state.ranking;
-  const weights=`<div class="weights"><b>Gewichtung:</b>${CRITERIA.map(c=>`<label title="${c.desc}">${c.icon} ${c.name.replace(' (Zusatzkriterium)','')} <input type="range" min="0" max="100" step="5" value="${state.optWeights[c.key]}" data-rw="${c.key}"> <span>${state.optWeights[c.key]}</span></label>`).join('')}
-    <button class="small primary" id="rkRun">${R?'↻ Neu ranken':'🏆 Routen ranken'}</button><button class="small" id="rkOpt">🎯 Neue Optimierung</button></div>`;
-  if(!rs.length){ pane.innerHTML=weights+'<div class="empty">Noch keine Routen. Starte die Routenoptimierung oder setze Ziele.</div>'; wireRankPane(); return; }
-  if(!R){ pane.innerHTML=weights+`<div class="empty">${rs.length} Route(n) vorhanden – „Routen ranken“ bewertet sie nach den eingestellten Gewichten.</div>`; wireRankPane(); return; }
+  const weights=`<div class="weights"><b>Gewichtung</b>
+    <label>Schwerpunkt <select id="rkPreset">${CRITERIA.map(c=>`<option value="${c.key}" ${c.key===mainCrit()?'selected':''}>${c.icon} ${c.name.replace(' (Zusatzkriterium)','')}</option>`).join('')}</select></label>
+    ${CRITERIA.map(c=>`<label title="${c.desc}">${c.icon} ${c.name.replace(' (Zusatzkriterium)','').replace(' & ',' &amp; ')} <input type="range" min="0" max="100" step="5" value="${state.optWeights[c.key]}" data-rw="${c.key}" aria-label="Gewicht ${c.name}"> <span data-wv="${c.key}">${state.optWeights[c.key]} %</span></label>`).join('')}
+    <span class="wsum" id="rkSum">Σ ${wSum()} %</span></div>`;
+  if(!rs.length){ pane.innerHTML=weights+'<div class="empty">Noch keine Routen. Setze Ziele auf der Karte – sie werden automatisch verglichen.</div>'; wireRankPane(); return; }
+  if(!R||!R.length){ pane.innerHTML=weights+'<div class="empty">Bitte mindestens ein Kriterium gewichten.</div>'; wireRankPane(); return; }
   const act=CRITERIA.filter(c=>+state.optWeights[c.key]>0);
   pane.innerHTML=weights+`<table><thead><tr><th>Rang</th><th>Ziel</th><th>Gesamt</th>${act.map(c=>`<th title="${c.desc}">${c.icon} ${c.name.split(' ')[0]}</th>`).join('')}
     <th>Länge</th><th>hm</th><th>befestigt</th><th>verkehrsarm</th><th>Hauptstr.</th><th>max. Steig.</th><th>Ø Wind</th><th>Regen</th></tr></thead><tbody>
@@ -1594,22 +1401,27 @@ function renderRanking(){
       <td>${r.way?nf0.format(r.way.maxGrad*100)+' %':'–'}</td>
       <td>${r.wx&&r.wx.avgHead!=null?`<span style="color:${r.wx.avgHead>=0.5?'var(--head)':r.wx.avgHead<=-0.5?'var(--tail)':'inherit'}">${r.wx.avgHead>0?'+':''}${nf1.format(r.wx.avgHead)}</span>`:'–'}</td>
       <td>${r.wx&&r.wx.rainMm!=null?nf1.format(r.wx.rainMm)+' mm':'–'}</td></tr>`; }).join('')}
-  </tbody></table><div class="hint">Scores 0–100 (höher = besser). Profil berücksichtigt Radtyp „${bikeType()==='road'?'Rennrad':bikeType()==='offroad'?'Gravel/MTB':'Trekking'}“ (aus dem Routing-Profil). Wetter bezogen auf Start ${fmtDT(startUnix())}. Ranking aktualisiert sich bei Änderung von Gewichten, Startzeit oder Tempo.</div>`;
+  </tbody></table><div class="hint">Scores 0–100 (höher = besser). Profil berücksichtigt Radtyp „${bikeType()==='road'?'Rennrad':bikeType()==='offroad'?'Gravel/MTB':'Trekking'}“ (aus dem Routing-Profil). Wetter bezogen auf Start ${fmtDT(startUnix())}. Die Rangliste aktualisiert sich automatisch bei neuen Zielen und bei Änderung von Gewichten, Startzeit oder Tempo. Die Gewichte ergeben zusammen höchstens 100 %.</div>`;
   wireRankPane();
 }
 function wireRankPane(){
   const pane=$('rankPane');
+  const sync=()=>{ // Regler und Anzeigen nach Kopplung aktualisieren, ohne neu zu zeichnen (Ziehen bleibt flüssig)
+    pane.querySelectorAll('input[data-rw]').forEach(x=>{ x.value=state.optWeights[x.dataset.rw]; });
+    pane.querySelectorAll('[data-wv]').forEach(x=>{ x.textContent=state.optWeights[x.dataset.wv]+' %'; });
+    $('rkSum').textContent='Σ '+wSum()+' %';
+  };
   pane.querySelectorAll('input[data-rw]').forEach(sl=>{
-    sl.oninput=()=>{ sl.nextElementSibling.textContent=sl.value; };
-    sl.onchange=()=>{ state.optWeights[sl.dataset.rw]=+sl.value; save(); renderAll(); };
+    sl.oninput=()=>{ setWeight(sl.dataset.rw,+sl.value); sync(); };
+    sl.onchange=()=>{ setWeight(sl.dataset.rw,+sl.value); save(); renderAll(); };
   });
-  const run=$('rkRun'); if(run) run.onclick=()=>{ if(state.opt&&state.opt.phase==='placing') return; state.ranking=computeRanking(); if(!state.opt) state.opt={n:0,ids:[],snap:false,phase:'done'}; renderAll(); };
-  const op=$('rkOpt'); if(op) op.onclick=optOpen;
+  const pr=$('rkPreset'); if(pr) pr.onchange=()=>{ Object.assign(state.optWeights,PRESETS[pr.value]); save(); renderAll(); };
   pane.querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>select(tr.dataset.id,{zoom:true}));
 }
 
 /* ================================================================ Gesamt-Render & Persistenz */
 function renderAll(){
+  state.ranking=computeRanking();   // alle berechneten Routen automatisch bewerten
   const colorMode=$('routeColor').value;
   state.routes.forEach(r=>{
     r.marker.setIcon(pinIcon(r));
@@ -1619,7 +1431,6 @@ function renderAll(){
   const any=state.routes.length>0, anyOk=state.routes.some(r=>r.status==='ok');
   $('exportAllBtn').disabled=!anyOk; $('clearBtn').disabled=!any; $('recalcBtn').disabled=!any;
   renderList(); renderTable(); renderChart(); renderWxMap(); renderWxChart(); renderBest(); renderWxStatus(); renderRanking();
-  $('optBtn').disabled=!state.start;
 }
 function save(){
   try{
@@ -1638,7 +1449,7 @@ function restore(){
   if(!s) return;
   ['profile','customProfile','server','customServer','speed','hpd','wxMode','routeColor'].forEach(k=>{ if(s[k]!=null&&s[k]!=='') $(k).value=s[k]; });
   if(s.showArrows!=null) $('showArrows').checked=s.showArrows;
-  if(s.optWeights) Object.assign(state.optWeights,s.optWeights);
+  if(s.optWeights){ Object.assign(state.optWeights,s.optWeights); normalizeWeights(); }
   if(s.arrowsAll!=null) $('arrowsAll').checked=s.arrowsAll;
   if(s.startTime){ const t=new Date(s.startTime).getTime(); if(isFinite(t)&&t>Date.now()-3600e3) $('startTime').value=s.startTime; }
   toggleCustom();
@@ -1674,7 +1485,6 @@ $('customProfile').addEventListener('change',()=>{ save(); recalcAll(); });
 $('server').addEventListener('change',()=>{ toggleCustom(); save(); if($('server').value!=='custom') recalcAll(); });
 $('customServer').addEventListener('change',()=>{ save(); recalcAll(); });
 $('recalcBtn').onclick=recalcAll;
-$('optBtn').onclick=optOpen;
 $('exportAllBtn').onclick=exportAll;
 $('clearBtn').onclick=()=>{ [...state.routes].forEach(r=>removeTarget(r.id)); };
 $('onlySel').addEventListener('change',renderChart);
