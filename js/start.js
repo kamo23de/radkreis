@@ -7,6 +7,7 @@ import { reverseName } from './geocode.js';
 import { computeRoute } from './routing.js';
 import { renderAll } from './render.js';
 import { save } from './storage.js';
+import { fitOpts } from './phone.js';
 
 /* ================================================================ Startpunkt & Kreis */
 let startMarker=null, circleLayer=null;
@@ -35,4 +36,4 @@ export function drawCircle(){
   if(circleLayer) circleLayer.setLatLngs(pts);
   else circleLayer=L.polygon(pts,{color:'#1f6feb',weight:2,dashArray:'6 6',fillColor:'#1f6feb',fillOpacity:.06,interactive:false}).addTo(map);
 }
-export function fitCircle(){ if(circleLayer) map.fitBounds(circleLayer.getBounds(),{padding:[20,20]}); }
+export function fitCircle(){ if(circleLayer) map.fitBounds(circleLayer.getBounds(),fitOpts()); }

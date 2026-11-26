@@ -172,11 +172,45 @@
 </aside>
 
 <div id="backdrop"></div>
+<div id="sheet" data-state="peek">
+  <div class="handle" id="sheetHandle"><span></span></div>
+  <div id="sheetPeek"></div>
+  <div class="seg" id="sheetSeg">
+    <button data-sp="routes" class="on">Routen</button>
+    <button data-sp="rank">🏆 Ranking</button>
+    <button data-sp="profile">Profil</button>
+    <button data-sp="weather">Wind &amp; Wetter</button>
+    <button data-sp="table">Vergleich</button>
+    <button data-sp="settings">⚙ Einstellungen</button>
+  </div>
+  <div id="sheetBody">
+    <div class="sp on" data-sp="routes"><div class="sp-tools"><button id="spAll">⤢ Alle zeigen</button><button id="spExport">⬇ Alle als GPX</button></div></div>
+    <div class="sp" data-sp="rank"></div>
+    <div class="sp" data-sp="profile"></div>
+    <div class="sp" data-sp="weather"></div>
+    <div class="sp" data-sp="table"></div>
+    <div class="sp" data-sp="settings"></div>
+  </div>
+</div>
 <div id="modal" role="dialog" aria-modal="true"><div class="box" id="modalBox"></div></div>
 <div id="main">
   <div id="mapBox">
     <div id="map"></div>
     <button id="menuBtn" title="Einstellungen &amp; Routen">☰ Routen</button>
+    <div id="phoneTop">
+      <div class="pt-search">
+        <input type="text" id="phoneQuery" placeholder="Start oder Ziel suchen …" enterkeyhint="search" autocomplete="off">
+        <button id="phoneSearchBtn" aria-label="Suchen">🔍</button>
+      </div>
+      <ul class="geo-results" id="phoneResults"></ul>
+      <div class="chips" id="phoneChips"></div>
+    </div>
+    <div id="installHint"><span>📲 Tipp: In Safari <b>Teilen ⬆︎ → „Zum Home-Bildschirm“</b> – dann startet die App im Vollbild und deine Planung bleibt gespeichert.</span><button id="installClose" aria-label="Schließen">✕</button></div>
+    <div id="fabs">
+      <button id="fabLocate" title="Mein Standort als Start" aria-label="Mein Standort als Start">◎</button>
+      <button id="fabWind" title="Windpfeile ein/aus" aria-label="Windpfeile ein/aus">💨</button>
+      <button id="fabFit" title="Alle Routen zeigen" aria-label="Alle Routen zeigen">⤢</button>
+    </div>
     <div id="mapMsg">Startpunkt wählen: Ort suchen, Standort nutzen oder in die Karte klicken.</div>
     <div id="toast" role="status" aria-live="polite"><span id="toastText"></span><button class="small" id="toastUndo">Rückgängig</button></div>
   </div>

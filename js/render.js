@@ -7,6 +7,7 @@ import { renderList, renderTable } from './list.js';
 import { renderBest, renderChart, renderWxChart, renderWxStatus } from './charts.js';
 import { computeRanking, renderRanking } from './ranking.js';
 import { updatePaceUI } from './pace.js';
+import { renderPhone } from './phone.js';
 
 /* ================================================================ Gesamt-Render */
 export function renderAll(){
@@ -20,5 +21,5 @@ export function renderAll(){
   });
   const any=state.routes.length>0, anyOk=state.routes.some(r=>r.status==='ok');
   $('exportAllBtn').disabled=!anyOk; $('clearBtn').disabled=!any; $('recalcBtn').disabled=!any;
-  renderList(); renderTable(); renderChart(); renderWxMap(); renderWxChart(); renderBest(); renderWxStatus(); renderRanking();
+  renderList(); renderTable(); renderChart(); renderWxMap(); renderWxChart(); renderBest(); renderWxStatus(); renderRanking(); renderPhone();
 }

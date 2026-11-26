@@ -13,6 +13,7 @@ import { listPending, renderList } from './list.js';
 import { bestChart, chart, renderChart, wxChart } from './charts.js';
 import { renderAll } from './render.js';
 import { restore, save } from './storage.js';
+import { initPhone, isPhone } from './phone.js';
 
 /* ================================================================ UI-Verdrahtung & Start */
 map.on('click', e => {
@@ -93,7 +94,8 @@ if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostn
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 
+initPhone();   // iPhone-Layout einrichten (Bereiche ggf. ins Panel umhängen)
 restore();
 renderAll();
-if(state.start) setMsg('');
+if(state.start||isPhone()) setMsg('');   // iPhone: Hinweis steht in der Kurzinfo des Panels
 else if(narrow()) setMsg('Tippe in die Karte, um den Startpunkt zu setzen – oder öffne ☰ für die Suche.');
