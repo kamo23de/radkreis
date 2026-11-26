@@ -767,17 +767,15 @@ function timePlan(r){ // Kennzahlen für die ganze Tour (mit Rückweg: Hin + Rü
   const pauseAtSpeed=moveAtSpeed*p/(1-p), nightAtSpeed=Math.max(0,durAtSpeed-moveAtSpeed-pauseAtSpeed);
   const plan={p, T, Lkm, v, hpd, durAtSpeed, moveAtSpeed, pauseAtSpeed, nightAtSpeed};
   if(T){
-    plan.move=movingHoursWithin(T,{hpd,p});                              // in T verfügbare reine Fahrzeit
-    plan.vReq=Lkm/plan.move;                                             // benötigtes Ø-Tempo in Bewegung
-    plan.durReq=elapsedHours(Lkm,{v:plan.vReq,hpd,p});                   // Dauer bei genau diesem Tempo (≤ T)
-    plan.stand=plan.durReq-plan.move;                                    // Pausen (+ ggf. Nachtruhe)
+    plan.vReq=Lkm/movingHoursWithin(T,{hpd,p});                         // mindestens nötiges Ø-Tempo in Bewegung
     plan.ok=plan.vReq<=v+1e-9;
+    plan.buffer=T-durAtSpeed;                                            // Zeitreserve mit eigenem Tempo (negativ = zu knapp)
   }
   return plan;
 }
-const vMove=r=>{ const pl=timePlan(r); return pl&&pl.T?pl.vReq:speedKmh(); };
-function tourElapsedH(r,d){ // Zeit (h) vom Start bis Distanz d (m), inkl. anteiliger Pausen und Nachtruhe
-  return elapsedHours(d/1000,{v:vMove(r),hpd:hoursPerDay(),p:pauseFrac(r)});
+function tourElapsedH(r,d){ // Zeit (h) vom Start bis Distanz d (m) mit eigenem Ø-Tempo, inkl. anteiliger Pausen und Nachtruhe
+  // (Die max. Dauer ändert die Zeitpunkte nicht – sie liefert nur das nötige Ø-Tempo und die Machbarkeit.)
+  return elapsedHours(d/1000,{v:speedKmh(),hpd:hoursPerDay(),p:pauseFrac(r)});
 }
 const fmtH=h=>{ if(h==null||!isFinite(h)) return '–'; const t=Math.round(h*60); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')} h`; };
 function assignTimes(r,t0=startUnix()){ r.samples.forEach(s=>{ s.t=t0+tourElapsedH(r,s.d)*3600; }); }
@@ -799,7 +797,7 @@ function applyWeather(r){
   if(!r.samples) return;
   assignTimes(r);
   r.samples.forEach(s=>{ s.wx=wxAt(s.key,s.t,s.heading); });
-  r.wx=summarize(r.samples,vMove(r));
+  r.wx=summarize(r.samples,speedKmh());
 }
 function scheduleWeather(delay=400){ clearTimeout(wxTimer); wxTimer=setTimeout(updateWeather,delay); }
 async function updateWeather(){
@@ -831,7 +829,7 @@ function bestStartSeries(r){ // Score je möglicher Startstunde innerhalb des Vo
   for(let t=nextFullHour(); t+dur<=fEnd; t+=3600){
     const S=r.samples.map((s,i)=>({d:s.d, t:t+offs[i], wx:fcAt(s.key,t+offs[i],s.heading)}));
     if(S.some(s=>!s.wx)) continue;
-    const sm=summarize(S,vMove(r));
+    const sm=summarize(S,speedKmh());
     out.push({t, head:sm.avgHead, rain:sm.rainMm, score:sm.avgHead+RAIN_WEIGHT*sm.rainMm});
   }
   return out;
@@ -902,24 +900,28 @@ function nextColor(){ const used=new Set(state.routes.map(r=>r.color)); return C
 function addTarget(ll,label,opts={}){
   const compute=opts.compute!==false;
   if(!state.start){ setStart(ll,label); return; }
-  const r={id:'r'+(++state.counter), num:state.counter, color:nextColor(), latlng:{lat:ll.lat,lng:ll.lng}, name:label||null, status:'idle', retMode:opts.retMode||$('retDefault').value, pausePct:opts.pausePct??state.defaultPause??0};
+  const id='r'+(++state.counter);
+  const colorFree=c=>c&&!state.routes.some(x=>x.color===c);
+  const r={id, num:opts.num!=null&&!state.routes.some(x=>x.num===opts.num)?opts.num:state.counter, color:colorFree(opts.color)?opts.color:nextColor(), latlng:{lat:ll.lat,lng:ll.lng}, name:label||null, status:'idle', retMode:opts.retMode||$('retDefault').value, pausePct:opts.pausePct??state.defaultPause??0};
   r.marker=L.marker([ll.lat,ll.lng],{icon:pinIcon(r),draggable:true,title:'Ziel – ziehen zum Verschieben, Rechtsklick zum Entfernen'}).addTo(map);
   r.marker.on('click',()=>select(r.id));
   r.marker.on('contextmenu',ev=>{L.DomEvent.preventDefault(ev); removeTarget(r.id);});
   r.marker.on('dragend',()=>{const p=r.marker.getLatLng(); r.latlng={lat:p.lat,lng:((p.lng+540)%360)-180}; r.name=null; nameTarget(r); computeRoute(r); save();});
-  state.routes.push(r); state.selectedId=r.id;
+  if(opts.index!=null&&opts.index>=0&&opts.index<state.routes.length) state.routes.splice(opts.index,0,r); else state.routes.push(r);
+  state.selectedId=r.id;
   if(!r.name) nameTarget(r);
   if(compute) computeRoute(r);
   save(); renderAll();
 }
 function nameTarget(r){ const ll=r.latlng; reverseName(ll).then(n=>{ if(n && r.latlng===ll){ r.name=n; renderAll(); save(); } }); }
-const snapshot=r=>({lat:r.latlng.lat,lng:r.latlng.lng,name:r.name,retMode:r.retMode,pausePct:r.pausePct||0});
+const snapshot=r=>({lat:r.latlng.lat,lng:r.latlng.lng,name:r.name,retMode:r.retMode,pausePct:r.pausePct||0,
+  num:r.num,color:r.color,index:state.routes.indexOf(r)});
 let undoTimer=null;
 function offerUndo(text,items){
   const t=$('toast'); $('toastText').textContent=text; t.classList.add('on');
   clearTimeout(undoTimer); undoTimer=setTimeout(()=>t.classList.remove('on'),8000);
   $('toastUndo').onclick=()=>{ clearTimeout(undoTimer); t.classList.remove('on');
-    items.forEach(x=>addTarget(x,x.name,{retMode:x.retMode,pausePct:x.pausePct})); };
+    items.forEach(x=>addTarget(x,x.name,{retMode:x.retMode,pausePct:x.pausePct,num:x.num,color:x.color,index:x.index})); };
 }
 function removeTarget(id,{undo=true}={}){
   const i=state.routes.findIndex(r=>r.id===id); if(i<0) return;
@@ -1363,16 +1365,14 @@ function timeRowHtml(r){
     <input type="number" class="pauseInp" data-pause="${r.id}" min="0" max="90" step="5" value="${r.pausePct||0}" style="width:62px;padding:3px 6px;min-height:0;font-size:12.5px"> %</label>`;
   const nightTxt=h=>h>0.01?` + Nachtruhe ${fmtH(h)}`:'';
   let info;
+  const durTxt=`<span title="Bei deinem Ø-Tempo von ${nf1.format(pl.v)} km/h">⏱ Fahrzeit ${fmtH(pl.moveAtSpeed)} + Pausen ${fmtH(pl.pauseAtSpeed)}${nightTxt(pl.nightAtSpeed)} ≈ <b>${fmtH(pl.durAtSpeed)}</b></span>`;
   if(pl.T){
-    const rest=Math.max(0,pl.durReq-pl.move-pl.move*pl.p/(1-pl.p));
-    info=`<span title="Benötigtes Durchschnittstempo während der Fahrt, damit ${km(r.lengthM)} km in ${fmtH(pl.T)} inkl. ${nf0.format(pl.p*100)} % Pausen${pl.hpd<24?` und max. ${nf1.format(pl.hpd)} Fahrstunden pro Tag`:''} geschafft werden">
-        🎯 nötiges Ø <b>${nf1.format(pl.vReq)} km/h</b></span>
-      <span>Fahrzeit ${fmtH(pl.move)} + Pausen ${fmtH(pl.move*pl.p/(1-pl.p))}${nightTxt(rest)} = ${fmtH(pl.durReq)}</span>
-      ${pl.ok?`<span class="badge" style="background:#e6f4ea;color:var(--ok)" title="Mit deinem Ø-Tempo von ${nf1.format(pl.v)} km/h dauert die Tour ${fmtH(pl.durAtSpeed)}">✓ machbar (${fmtH(pl.durAtSpeed)} bei ${nf1.format(pl.v)} km/h)</span>`
-             :`<span class="badge warn" title="Mit deinem Ø-Tempo von ${nf1.format(pl.v)} km/h dauert die Tour inkl. Pausen ${fmtH(pl.durAtSpeed)}">⚠ zu knapp: ${fmtH(pl.durAtSpeed)} bei ${nf1.format(pl.v)} km/h</span>`}`;
+    info=`<span title="Mindestens nötiges Durchschnittstempo während der Fahrt, damit ${km(r.lengthM)} km in ${fmtH(pl.T)} inkl. ${nf0.format(pl.p*100)} % Pausen${pl.hpd<24?` und max. ${nf1.format(pl.hpd)} Fahrstunden pro Tag`:''} geschafft werden">
+        🎯 nötiges Ø <b>${nf1.format(pl.vReq)} km/h</b></span>${durTxt}
+      ${pl.ok?`<span class="badge" style="background:#e6f4ea;color:var(--ok)" title="Mit deinem Ø-Tempo bleiben von ${fmtH(pl.T)} noch ${fmtH(pl.buffer)} übrig">✓ machbar, ${fmtH(pl.buffer)} Puffer</span>`
+             :`<span class="badge warn" title="Mit deinem Ø-Tempo von ${nf1.format(pl.v)} km/h dauert die Tour ${fmtH(-pl.buffer)} länger als ${fmtH(pl.T)}">⚠ zu knapp: ${fmtH(-pl.buffer)} über ${fmtH(pl.T)}</span>`}`;
   } else {
-    info=`<span title="Bei deinem Ø-Tempo von ${nf1.format(pl.v)} km/h">⏱ Fahrzeit ${fmtH(pl.moveAtSpeed)} + Pausen ${fmtH(pl.pauseAtSpeed)}${nightTxt(pl.nightAtSpeed)} ≈ <b>${fmtH(pl.durAtSpeed)}</b></span>
-      <span style="color:var(--muted)">(max. Dauer nicht gesetzt)</span>`;
+    info=`${durTxt}<span style="color:var(--muted)">(max. Dauer nicht gesetzt)</span>`;
   }
   return `<div class="waysrow" style="align-items:center">${inp}${info}</div>`;
 }
