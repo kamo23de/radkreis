@@ -1,10 +1,10 @@
 // Radrouten-Radar – Service Worker: App-Gerüst offline verfügbar machen.
 // Routing (bikerouter.de), Wetter (Open-Meteo), Suche und Kartenkacheln laufen immer übers Netz.
 // VERSION bei jeder Veröffentlichung erhöhen, damit alte Caches entfernt werden.
-const VERSION = 'rr-v5';
+const VERSION = 'rr-v6';
 const LOCAL = [
   './', './index.html', './manifest.webmanifest', './css/app.css',
-  './js/charts.js', './js/config.js', './js/core.js', './js/export.js', './js/geocode.js', './js/list.js',
+  './js/bottom.js', './js/charts.js', './js/config.js', './js/core.js', './js/export.js', './js/geocode.js', './js/list.js',
   './js/main.js', './js/map.js', './js/pace.js', './js/phone.js', './js/ranking.js', './js/render.js', './js/routing.js', './js/start.js',
   './js/state.js', './js/storage.js', './js/targets.js', './js/util.js', './js/weather.js', './js/wxmap.js',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'

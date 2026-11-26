@@ -211,10 +211,12 @@
       <button id="fabWind" title="Windpfeile ein/aus" aria-label="Windpfeile ein/aus">💨</button>
       <button id="fabFit" title="Alle Routen zeigen" aria-label="Alle Routen zeigen">⤢</button>
     </div>
+    <button id="bottomShow" title="Höhenprofil, Wind &amp; Wetter, Vergleich und Ranking einblenden">▴ Höhenprofil &amp; Wetter</button>
     <div id="mapMsg">Startpunkt wählen: Ort suchen, Standort nutzen oder in die Karte klicken.</div>
     <div id="toast" role="status" aria-live="polite"><span id="toastText"></span><button class="small" id="toastUndo">Rückgängig</button></div>
   </div>
   <div id="bottom">
+    <div id="bottomHandle" title="Ziehen ändert die Höhe – nach unten ziehen oder antippen blendet den Bereich aus" role="separator" aria-orientation="horizontal"><span></span></div>
     <div id="tabs">
       <button class="small active" data-pane="paneProfile">Höhenprofil</button>
       <button class="small" data-pane="paneWeather">Wind &amp; Wetter</button>
@@ -222,7 +224,7 @@
       <button class="small" data-pane="rankPane">🏆 Ranking</button>
       <span class="sp"></span>
       <label><input type="checkbox" id="onlySel"> nur ausgewählte Route</label>
-      <button class="small" id="toggleBottom" title="Ein-/Ausklappen">▾</button>
+      <button class="small" id="toggleBottom" title="Bereich ausblenden (mehr Platz für die Karte)" aria-label="Bereich ausblenden">▾</button>
     </div>
     <div class="pane on" id="paneProfile"><div id="chartWrap"><canvas id="chart"></canvas></div></div>
     <div class="pane" id="paneWeather">

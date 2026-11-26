@@ -14,6 +14,8 @@ Inhalt: index.html, css/, js/, manifest.webmanifest, sw.js, icons/
    Die App startet dann im Vollbild mit eigenem Symbol.
 
 Hinweise
+- iPad/Desktop: Der Bereich unter der Karte (Höhenprofil, Wetter, Vergleich, Ranking) lässt sich
+  am Griff in der Höhe ziehen und nach unten wegschieben; „▴ Höhenprofil & Wetter“ holt ihn zurück.
 - iPhone (Breite ≤ 600 px): Karte im Vollbild, oben Suche und Chips für die wichtigsten
   Einstellungen, unten ein Panel (Kurzinfo / halb / voll – ziehen oder antippen) mit den Reitern
   Routen, Ranking, Profil, Wind & Wetter, Vergleich und Einstellungen.
@@ -43,6 +45,7 @@ Module (js/)
   routing.js  Routenberechnung (BRouter), Etappen, Rückweg
   weather.js  Wetter/Klima (Open-Meteo), Zeitplan, Startzeit-Vergleich
   pace.js     Tempo-Modell: Fahrzeit je Abschnitt aus Steigung, Wind und Untergrund
+  bottom.js   unterer Bereich auf iPad/Desktop: Höhe ziehen, aus- und einblenden
   phone.js    iPhone-Layout: Vollbildkarte, Kopfleiste mit Chips, Panel von unten
   wxmap.js    Windpfeile, eingefärbte Route, Legende
   targets.js  Ziele anlegen, auswählen, entfernen, Rückgängig
