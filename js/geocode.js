@@ -17,7 +17,7 @@ export function setupSearch(inputId,btnId,listId,onPick){
   const inp=$(inputId), list=$(listId);
   const run=async()=>{
     const q=inp.value.trim(); if(!q) return;
-    const c=parseCoords(q); if(c){ list.style.display='none'; onPick(c,null); return; }
+    const c=parseCoords(q); if(c){ list.style.display='none'; inp.value=''; onPick(c,null); return; }
     list.innerHTML='<li><span class="spin"></span> suche …</li>'; list.style.display='block';
     try{
       const res=await geocode(q);

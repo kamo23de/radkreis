@@ -51,7 +51,7 @@ export function renderWxMap(){
   }
   legend.update(withWx.length>0, mode);
 }
-const legend=L.control({position:'bottomleft'});
+export const legend=L.control({position:'bottomleft'});
 legend.onAdd=function(){ this._div=L.DomUtil.create('div','wxlegend'); this._div.style.display='none'; return this._div; };
 legend.update=function(show,mode){
   if(!this._div) return; this._div.style.display=show?'block':'none'; if(!show) return;

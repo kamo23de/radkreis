@@ -9,6 +9,7 @@ import { computeRoute } from './routing.js';
 import { rankOf } from './ranking.js';
 import { renderAll } from './render.js';
 import { save } from './storage.js';
+import { fitOpts, isPhone, phoneFocusRoute, sheetTo } from './phone.js';
 
 /* ================================================================ Ziele verwalten */
 export function pinIcon(r){ const rk=rankOf(r); return L.divIcon({className:'',html:`<div class="pin${r.status==='loading'?' loading':''}${rk===1?' best':''}" style="background:${r.color}">${r.num}${rk?`<span class="rk">#${rk}</span>`:''}</div>`,iconSize:[26,26],iconAnchor:[13,13]}); }
@@ -32,12 +33,15 @@ export function addTarget(ll,label,opts={}){
 function nameTarget(r){ const ll=r.latlng; reverseName(ll).then(n=>{ if(n && r.latlng===ll){ r.name=n; renderAll(); save(); } }); }
 export const snapshot=r=>({lat:r.latlng.lat,lng:r.latlng.lng,name:r.name,retMode:r.retMode,pausePct:r.pausePct||0,
   num:r.num,color:r.color,index:state.routes.indexOf(r)});
-let undoTimer=null;
+let toastTimer=null;
+export function toast(text,{action=null,actionLabel='Rückgängig'}={}){ // kurze Meldung, optional mit Aktion
+  const t=$('toast'), b=$('toastUndo');
+  $('toastText').textContent=text; b.textContent=actionLabel; b.style.display=action?'':'none'; t.classList.add('on');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('on'),action?8000:3000);
+  b.onclick=action?()=>{ clearTimeout(toastTimer); t.classList.remove('on'); action(); }:null;
+}
 export function offerUndo(text,items){
-  const t=$('toast'); $('toastText').textContent=text; t.classList.add('on');
-  clearTimeout(undoTimer); undoTimer=setTimeout(()=>t.classList.remove('on'),8000);
-  $('toastUndo').onclick=()=>{ clearTimeout(undoTimer); t.classList.remove('on');
-    items.forEach(x=>addTarget(x,x.name,{retMode:x.retMode,pausePct:x.pausePct,num:x.num,color:x.color,index:x.index})); };
+  toast(text,{action:()=>items.forEach(x=>addTarget(x,x.name,{retMode:x.retMode,pausePct:x.pausePct,num:x.num,color:x.color,index:x.index}))});
 }
 export function removeTarget(id,{undo=true}={}){
   const i=state.routes.findIndex(r=>r.id===id); if(i<0) return;
@@ -51,7 +55,9 @@ export function removeTarget(id,{undo=true}={}){
 export function select(id,{zoom=false}={}){
   state.selectedId=id; renderAll();
   const r=state.routes.find(x=>x.id===id);
-  if(zoom&&r){ if(r.line) map.fitBounds(r.line.getBounds(),{padding:[30,30]}); else map.panTo([r.latlng.lat,r.latlng.lng]); }
+  if(zoom&&r&&isPhone()) sheetTo('peek');      // iPhone: Panel einklappen, damit die Route sichtbar ist
+  if(zoom&&r){ if(r.line) map.fitBounds(r.line.getBounds(),fitOpts(30)); else map.panTo([r.latlng.lat,r.latlng.lng]); }
+  else if(r&&isPhone()) phoneFocusRoute(r.id);
 }
 export function drawRoute(r){
   if(r.line){ map.removeLayer(r.line); r.line=null; }

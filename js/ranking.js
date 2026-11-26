@@ -65,7 +65,7 @@ const pct=v=>v==null?'–':nf0.format(v*100)+' %';
 export function timeRowHtml(r){
   const pl=timePlan(r); if(!pl) return '';
   const inp=`<label style="display:inline-flex;align-items:center;gap:4px;margin:0;color:var(--text)" title="Standzeit in % der Gesamtdauer (z. B. 20 = 20 % der Zeit stehen)">⏸ Pausen
-    <input type="number" class="pauseInp" data-pause="${r.id}" min="0" max="90" step="5" value="${r.pausePct||0}" style="width:62px;padding:3px 6px;min-height:0;font-size:12.5px"> %</label>`;
+    <button class="small pstep" data-pstep="-5" data-rid="${r.id}" aria-label="Pausen verringern">−</button><input type="number" class="pauseInp" data-pause="${r.id}" min="0" max="90" step="5" value="${r.pausePct||0}" style="width:56px;padding:3px 6px;min-height:0;font-size:12.5px;text-align:center"><button class="small pstep" data-pstep="5" data-rid="${r.id}" aria-label="Pausen erhöhen">+</button> %</label>`;
   const nightTxt=h=>h>0.01?` + Nachtruhe ${fmtH(h)}`:'';
   let info;
   const phys=paceModel()==='phys';

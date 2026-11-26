@@ -83,6 +83,8 @@ export function renderList(){
         <button class="small" data-act="del" title="Ziel entfernen">✕</button>
       </div></div>`;
   }).join('') + (state.routes.some(r=>r.status==='ok')?'<div class="hint">* Fahrzeit-Schätzung von BRouter (Profil-abhängig). Ankunft &amp; Wetter nutzen dein Ø-Tempo.</div>':'');
+  box.querySelectorAll('button[data-pstep]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const r=state.routes.find(x=>x.id===b.dataset.rid); if(!r) return;
+    r.pausePct=Math.min(90,Math.max(0,(+r.pausePct||0)+(+b.dataset.pstep))); state.defaultPause=r.pausePct; save(); scheduleWeather(150); renderAll(); });
   box.querySelectorAll('input[data-pause]').forEach(inp=>{ inp.onclick=e=>e.stopPropagation(); inp.onkeydown=e=>{ if(e.key==='Enter') inp.blur(); }; inp.onchange=()=>{ const r=state.routes.find(x=>x.id===inp.dataset.pause); if(!r) return;
     r.pausePct=Math.min(90,Math.max(0,Math.round(+inp.value||0))); state.defaultPause=r.pausePct; save(); scheduleWeather(150); renderAll(); }; });
   box.querySelectorAll('select[data-ret]').forEach(sel=>sel.onchange=()=>{ const r=state.routes.find(x=>x.id===sel.dataset.ret); if(!r) return; r.retMode=sel.value; save(); computeRoute(r); });
@@ -90,7 +92,7 @@ export function renderList(){
     const id=c.dataset.id, r=state.routes.find(x=>x.id===id);
     c.onclick=e=>{
       const act=e.target.closest('[data-act]')?.dataset.act;
-      if(e.target.closest('a')||e.target.closest('select')||e.target.closest('input')) return;
+      if(e.target.closest('a')||e.target.closest('select')||e.target.closest('input')||e.target.closest('.pstep')) return;
       if(act==='del') removeTarget(id);
       else if(act==='gpx') exportOne(r);
       else if(act==='komoot'||act==='garmin') sendTo(act,r);

@@ -10,10 +10,13 @@ Inhalt: index.html, css/, js/, manifest.webmanifest, sw.js, icons/
      Branch „main“, Ordner „/ (root)“ → Adresse: https://<name>.github.io/<repo>/
    - Uni-/Instituts-Webspace oder jeder andere statische Hoster (muss https haben).
 
-2) Auf dem iPad die Adresse in Safari öffnen → Teilen-Symbol → „Zum Home-Bildschirm“.
+2) Auf dem iPad oder iPhone die Adresse in Safari öffnen → Teilen-Symbol → „Zum Home-Bildschirm“.
    Die App startet dann im Vollbild mit eigenem Symbol.
 
 Hinweise
+- iPhone (Breite ≤ 600 px): Karte im Vollbild, oben Suche und Chips für die wichtigsten
+  Einstellungen, unten ein Panel (Kurzinfo / halb / voll – ziehen oder antippen) mit den Reitern
+  Routen, Ranking, Profil, Wind & Wetter, Vergleich und Einstellungen.
 - Die App muss über einen Webserver geöffnet werden (https://…, lokal z. B. http://localhost);
   als Datei (file://) startet sie nicht, weil Browser dort keine ES-Module laden.
 - HTTPS ist nötig für „Mein Standort“, Offline-Start und die Installation.
@@ -40,6 +43,7 @@ Module (js/)
   routing.js  Routenberechnung (BRouter), Etappen, Rückweg
   weather.js  Wetter/Klima (Open-Meteo), Zeitplan, Startzeit-Vergleich
   pace.js     Tempo-Modell: Fahrzeit je Abschnitt aus Steigung, Wind und Untergrund
+  phone.js    iPhone-Layout: Vollbildkarte, Kopfleiste mit Chips, Panel von unten
   wxmap.js    Windpfeile, eingefärbte Route, Legende
   targets.js  Ziele anlegen, auswählen, entfernen, Rückgängig
   export.js   GPX-Export, Übergabe an Komoot/Garmin
