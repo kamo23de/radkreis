@@ -1,7 +1,7 @@
 Radrouten-Radar – Web-App für iPad / iPhone (und Desktop)
 =========================================================
 
-Inhalt: index.html, core.js, manifest.webmanifest, sw.js, icons/
+Inhalt: index.html, css/, js/, manifest.webmanifest, sw.js, icons/
 (tests/, package.json und .github/ werden für den Betrieb nicht benötigt.)
 
 1) Ordnerinhalt auf einen beliebigen HTTPS-Webspace hochladen, z. B.:
@@ -14,11 +14,36 @@ Inhalt: index.html, core.js, manifest.webmanifest, sw.js, icons/
    Die App startet dann im Vollbild mit eigenem Symbol.
 
 Hinweise
+- Die App muss über einen Webserver geöffnet werden (https://…, lokal z. B. http://localhost);
+  als Datei (file://) startet sie nicht, weil Browser dort keine ES-Module laden.
 - HTTPS ist nötig für „Mein Standort“, Offline-Start und die Installation.
 - Routing, Wetter, Ortssuche und Karten brauchen eine Internetverbindung.
 - GPX-Export öffnet auf dem iPad das Teilen-Menü (Komoot, Wahoo, Garmin, Dateien …).
 - Gespeicherte Planungen liegen lokal im Browser des Geräts.
 - Nach Änderungen an der App in sw.js die VERSION erhöhen, damit alte Offline-Caches entfernt werden.
+  Neue Dateien unter js/ auch in die LOCAL-Liste in sw.js eintragen (für den Offline-Start).
 
 Entwicklung
-- Tests der Rechenfunktionen (core.js): `npm test` (Node 20 oder neuer, keine Abhängigkeiten).
+- Kein Build-Schritt: index.html lädt js/main.js als ES-Modul, das alle übrigen Module importiert.
+- Lokal starten: im Ordner z. B. `python3 -m http.server` und http://localhost:8000 öffnen.
+- Tests der Rechenfunktionen (js/core.js): `npm test` (Node 20 oder neuer, keine Abhängigkeiten).
+
+Module (js/)
+  main.js     Verdrahtung der Bedienelemente und Programmstart
+  config.js   Konstanten (Server, Open-Meteo, Farben, Grenzwerte)
+  state.js    gemeinsamer App-Zustand
+  util.js     Formatierung, DOM-Helfer
+  core.js     reine Rechenfunktionen ohne DOM (Geo, Zeitmodell, Wegeattribute) – getestet
+  map.js      Leaflet-Karte und Kartenebenen
+  geocode.js  Ortssuche und Ortsnamen (Nominatim)
+  start.js    Startpunkt und Umkreis
+  routing.js  Routenberechnung (BRouter), Etappen, Rückweg
+  weather.js  Wetter/Klima (Open-Meteo), Zeitplan, Startzeit-Vergleich
+  wxmap.js    Windpfeile, eingefärbte Route, Legende
+  targets.js  Ziele anlegen, auswählen, entfernen, Rückgängig
+  export.js   GPX-Export, Übergabe an Komoot/Garmin
+  list.js     Routenliste und Vergleichstabelle
+  charts.js   Höhenprofil, Wind-/Regen-Diagramm, Startzeit-Diagramm
+  ranking.js  Wegeauswertung, Bewertung, Gewichtung, Ranking
+  render.js   Gesamt-Aktualisierung der Oberfläche
+  storage.js  Speichern/Wiederherstellen im Browser (localStorage)

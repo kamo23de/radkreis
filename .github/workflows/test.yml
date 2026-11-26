@@ -12,9 +12,6 @@ jobs:
           node-version: 20
       - name: Syntax prüfen
         run: |
-          node --check core.js
-          node --check sw.js
-          sed -n '/^<script>$/,/^<\/script>$/p' index.html | sed '1d;$d' > /tmp/app.js
-          node --check /tmp/app.js
+          for f in js/*.js sw.js; do node --check "$f"; done
       - name: Tests
         run: npm test

@@ -1,7 +1,7 @@
 // Tests für die reinen Rechenfunktionen – ausführen mit: node --test
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const C = require('../core.js');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as C from '../js/core.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} erwartet ${b} ± ${tol}, erhalten ${a}`);
 
