@@ -165,6 +165,9 @@
       <button id="recalcBtn" disabled>↻ Neu berechnen</button>
       <button id="clearBtn" disabled>✕ Alle entfernen</button>
     </div>
+    <div class="row" style="margin-top:6px">
+      <button id="shareBtn" disabled title="Link mit Start, Zielen und Einstellungen – zum Weitergeben oder zum Öffnen auf einem anderen Gerät">🔗 Planung als Link teilen</button>
+    </div>
     <div class="hint">Klick auf die Karte setzt ein Ziel. Marker lassen sich verschieben; Rechtsklick (bzw. langes Drücken) auf einen Marker oder ✕ in der Liste entfernt ihn – „Rückgängig“ holt ihn zurück. Alle Routen werden automatisch bewertet – Rangliste und Gewichtung im Tab „🏆 Ranking“.</div>
   </section>
 
@@ -184,7 +187,7 @@
     <button data-sp="settings">⚙ Einstellungen</button>
   </div>
   <div id="sheetBody">
-    <div class="sp on" data-sp="routes"><div class="sp-tools"><button id="spAll">⤢ Alle zeigen</button><button id="spExport">⬇ Alle als GPX</button></div></div>
+    <div class="sp on" data-sp="routes"><div class="sp-tools"><button id="spAll">⤢ Alle zeigen</button><button id="spExport">⬇ Alle als GPX</button><button id="spShare">🔗 Link teilen</button></div></div>
     <div class="sp" data-sp="rank"></div>
     <div class="sp" data-sp="profile"></div>
     <div class="sp" data-sp="weather"></div>

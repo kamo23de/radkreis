@@ -225,3 +225,60 @@ test('valueAt interpoliert linear und begrenzt an den Rändern', () => {
   assert.equal(C.valueAt([0, 10, 20], [0, 1, 3], -5), 0);
   assert.equal(C.valueAt([0, 10, 20], [0, 1, 3], 99), 3);
 });
+
+/* ---- Teilbare Planungs-Links */
+const PLAN = {
+  start: { lat: 51.339691, lng: 12.373075 }, startName: 'Leipzig', radiusKm: 120, profile: 'fastbike', startUnix: 1795000000,
+  speed: '27', hpd: '10', maxDur: '5:30', wxMode: 'clim', paceModel: 'const', mass: '78', retDefault: 'best',
+  optWeights: { profile: 20, weather: 60, beauty: 20, efficiency: 0 },
+  targets: [{ lat: 51.9, lng: 12.6, name: 'Wittenberg', retMode: 'same', pausePct: 20 },
+            { lat: 51.05, lng: 13.74, name: 'Dresden → Altstadt, Straße „ß“ 🚲', retMode: 'none', pausePct: 0 },
+            { lat: 50.8, lng: 12.9, name: null, retMode: 'alt', pausePct: 0 }]
+};
+const roundTrip = p => C.shareToPlan(C.decodeShare(C.encodeShare(C.planToShare(p))));
+
+test('Planungs-Link: Hin- und Rückweg erhält alle Angaben', () => {
+  const p = roundTrip(PLAN);
+  near(p.start.lat, 51.339691, 1e-5); near(p.start.lng, 12.373075, 1e-5);
+  assert.equal(p.startName, 'Leipzig'); assert.equal(p.radiusKm, 120); assert.equal(p.profile, 'fastbike');
+  assert.equal(p.startUnix, 1795000000); assert.equal(p.speed, '27'); assert.equal(p.hpd, '10'); assert.equal(p.maxDur, '5:30');
+  assert.equal(p.wxMode, 'clim'); assert.equal(p.paceModel, 'const'); assert.equal(p.mass, '78'); assert.equal(p.retDefault, 'best');
+  assert.deepEqual(p.optWeights, PLAN.optWeights);
+  assert.deepEqual(p.targets.map(t => [t.name, t.retMode, t.pausePct]),
+    [['Wittenberg', 'same', 20], ['Dresden → Altstadt, Straße „ß“ 🚲', 'none', 0], [null, 'alt', 0]]);
+});
+
+test('Planungs-Link: Standardwerte werden weggelassen und beim Öffnen ergänzt', () => {
+  const c = C.planToShare({ start: { lat: 50, lng: 10 }, radiusKm: 100, hpd: '24', mass: '85', wxMode: 'auto', paceModel: 'phys', retDefault: 'none', targets: [{ lat: 50.5, lng: 10.5 }] });
+  assert.deepEqual(Object.keys(c).sort(), ['s', 'v', 'z']);
+  const p = C.shareToPlan(c);
+  assert.equal(p.radiusKm, 100); assert.equal(p.hpd, '24'); assert.equal(p.mass, '85'); assert.equal(p.speed, '25');
+  assert.equal(p.maxDur, ''); assert.equal(p.wxMode, 'auto'); assert.equal(p.paceModel, 'phys'); assert.equal(p.optWeights, undefined);
+  assert.equal(p.targets[0].retMode, 'none');
+});
+
+test('Planungs-Link: nur URL-sichere Zeichen, kompakt', () => {
+  const s = C.encodeShare(C.planToShare(PLAN));
+  assert.match(s, /^[A-Za-z0-9_-]+$/);
+  assert.ok(s.length < 600, `Länge ${s.length}`);
+});
+
+test('Planungs-Link: kaputte oder fremde Links werden abgelehnt', () => {
+  for (const bad of ['', '!!!', 'abc', 'x'.repeat(9000), C.encodeShare({ v: 2, s: [50, 10] }), C.encodeShare([1, 2]), C.encodeShare('text')])
+    assert.equal(C.shareToPlan(C.decodeShare(bad)), null, JSON.stringify(bad.slice(0, 20)));
+  assert.equal(C.decodeShare('%%%'), null);
+  assert.equal(C.shareToPlan({ v: 1, s: [95, 10] }), null, 'Breite außerhalb');
+  assert.equal(C.shareToPlan({ v: 1, s: ['a', 10] }), null);
+  assert.equal(C.shareToPlan(null), null);
+});
+
+test('Planungs-Link: unsinnige Werte werden begrenzt bzw. verworfen', () => {
+  const p = C.shareToPlan({ v: 1, s: [50, 10, 'x'.repeat(500)], r: 99999, p: '<script>', t: 'jetzt', sp: 500, h: 0, d: 'nie', kg: -5,
+    rd: 'z', ow: [1, 2], z: [[50, 10, '<b>', 'q', 999], [91, 0], 'kaputt', ...Array.from({ length: 40 }, () => [50.1, 10.1])] });
+  assert.equal(p.startName.length, 120);
+  assert.equal(p.radiusKm, 100); assert.equal(p.profile, 'trekking'); assert.equal(p.startUnix, null);
+  assert.equal(p.speed, '25'); assert.equal(p.hpd, '24'); assert.equal(p.maxDur, ''); assert.equal(p.mass, '85');
+  assert.equal(p.retDefault, 'none'); assert.equal(p.optWeights, undefined);
+  assert.equal(p.targets[0].name, '<b>'); assert.equal(p.targets[0].retMode, 'none'); assert.equal(p.targets[0].pausePct, 0);
+  assert.equal(p.targets.length, C.MAX_SHARED_TARGETS - 2, 'ungültige Ziele verworfen, höchstens 30 gelesen');
+});

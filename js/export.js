@@ -59,7 +59,7 @@ function serviceGpx(r){
   const name=`${state.startName} → ${label(r)}`;
   return {text:gpxDoc([r],name,()=>coords), filename:`${slug(state.startName)}_${slug(label(r))}_${Math.round(r.lengthM/1000)}km.gpx`, pts:coords.length};
 }
-function closeModal(){ $('modal').classList.remove('on'); }
+export function closeModal(){ $('modal').classList.remove('on'); }
 export function sendTo(key,r){
   if(!r||r.status!=='ok') return;
   const svc=SERVICES[key], g=serviceGpx(r);
