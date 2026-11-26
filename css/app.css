@@ -61,7 +61,17 @@
   #main{display:grid;grid-template-rows:1fr auto;min-height:0;min-width:0}
   #map{min-height:0;cursor:crosshair}
   #bottom{background:var(--panel);border-top:1px solid var(--line);display:flex;flex-direction:column;height:300px;min-width:0}
-  #bottom.collapsed{height:38px}
+  /* unterer Bereich: Griff zum Ziehen, ausblendbar (body.bottom-hidden) */
+  #bottomHandle{display:flex;justify-content:center;padding:6px 0 3px;cursor:ns-resize;touch-action:none;flex:0 0 auto}
+  #bottomHandle span{width:44px;height:5px;border-radius:3px;background:#c9ced6}
+  #bottomHandle:hover span{background:#9aa3ad}
+  #bottom.drag{user-select:none;-webkit-user-select:none}
+  body.bottom-hidden #bottom{display:none}
+  #bottomShow{display:none;position:absolute;z-index:1001;right:10px;bottom:calc(44px + env(safe-area-inset-bottom));
+    border-radius:18px;padding:7px 14px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25);font-weight:600}
+  body.bottom-hidden #bottomShow{display:block}
+  body.bottom-hidden #toast{bottom:calc(72px + env(safe-area-inset-bottom))}
+  body.phone #bottomShow{display:none!important}
   #tabs{display:flex;gap:4px;align-items:center;padding:5px 10px;border-bottom:1px solid var(--line)}
   #tabs .sp{flex:1}
   #tabs label{display:inline-flex;gap:5px;align-items:center;margin:0 8px 0 0}

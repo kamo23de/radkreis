@@ -14,6 +14,7 @@ import { bestChart, chart, renderChart, wxChart } from './charts.js';
 import { renderAll } from './render.js';
 import { restore, save } from './storage.js';
 import { initPhone, isPhone } from './phone.js';
+import { initBottom, showBottom } from './bottom.js';
 
 /* ================================================================ UI-Verdrahtung & Start */
 map.on('click', e => {
@@ -63,13 +64,9 @@ document.querySelectorAll('[data-shift]').forEach(b=>b.onclick=()=>{
 document.querySelectorAll('#tabs [data-pane]').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#tabs [data-pane]').forEach(x=>x.classList.toggle('active',x===b));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id===b.dataset.pane));
-  $('bottom').classList.remove('collapsed'); $('toggleBottom').textContent='▾';
+  showBottom();
   setTimeout(()=>{map.invalidateSize(); [chart,wxChart,bestChart].forEach(c=>c.resize());},0);
 });
-$('toggleBottom').onclick=()=>{
-  const c=$('bottom').classList.toggle('collapsed'); $('toggleBottom').textContent=c?'▴':'▾';
-  setTimeout(()=>{map.invalidateSize(); [chart,wxChart,bestChart].forEach(c=>c.resize());},0);
-};
 ['chart','wxChart'].forEach(id=>$(id).addEventListener('mouseleave',()=>map.removeLayer(hoverMarker)));
 document.addEventListener('keydown',e=>{
   // Nur „Entf“ und nur, wenn Karte/Seite den Fokus hat (nicht nach Klick auf einen Button o. Ä.)
@@ -94,6 +91,7 @@ if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostn
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 
+initBottom();  // unterer Bereich: Griff, Ausblenden, gespeicherte Höhe
 initPhone();   // iPhone-Layout einrichten (Bereiche ggf. ins Panel umhängen)
 restore();
 renderAll();
