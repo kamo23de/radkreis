@@ -131,6 +131,7 @@ export function initPhone(){
   $('fabFit').onclick=fitAll;
   $('spAll').onclick=()=>{ sheetTo('peek'); fitAll(); };
   $('spExport').onclick=()=>$('exportAllBtn').click();
+  $('spShare').onclick=()=>$('shareBtn').click();
   // Installationshinweis (iOS Safari, nicht als Home-Bildschirm-App gestartet)
   const ios=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
   const standalone=navigator.standalone||matchMedia('(display-mode: standalone)').matches;

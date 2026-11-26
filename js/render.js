@@ -1,6 +1,6 @@
 // Radrouten-Radar – Modul „render“
 import { state } from './state.js';
-import { $ } from './util.js';
+import { $, esc } from './util.js';
 import { renderWxMap } from './wxmap.js';
 import { label, pinIcon } from './targets.js';
 import { renderList, renderTable } from './list.js';
@@ -16,10 +16,10 @@ export function renderAll(){
   const colorMode=$('routeColor').value;
   state.routes.forEach(r=>{
     r.marker.setIcon(pinIcon(r));
-    r.marker.bindTooltip(`${r.num} · ${label(r)}`);
+    r.marker.bindTooltip(`${r.num} · ${esc(label(r))}`);   // Tooltips sind HTML – Namen maskieren
     if(r.line){ const sel=r.id===state.selectedId; r.line.setStyle({weight:sel?6:4,opacity:sel?(colorMode!=='route'&&r.wx?.35:.95):.6}); if(sel) r.line.bringToFront(); }
   });
   const any=state.routes.length>0, anyOk=state.routes.some(r=>r.status==='ok');
-  $('exportAllBtn').disabled=!anyOk; $('clearBtn').disabled=!any; $('recalcBtn').disabled=!any;
+  $('exportAllBtn').disabled=!anyOk; $('shareBtn').disabled=!state.start; $('clearBtn').disabled=!any; $('recalcBtn').disabled=!any;
   renderList(); renderTable(); renderChart(); renderWxMap(); renderWxChart(); renderBest(); renderWxStatus(); renderRanking(); renderPhone();
 }

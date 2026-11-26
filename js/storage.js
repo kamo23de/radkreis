@@ -24,9 +24,9 @@ export function save(){
     }));
   }catch{}
 }
-export function restore(){
+function readStored(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY)||'null'); }catch{ return null; } }
+export function restore(s=readStored()){   // beim Programmstart: gespeicherte oder per Link geteilte Planung übernehmen
   $('startTime').value=toLocalInput(new Date(nextFullHour()*1000));
-  let s=null; try{ s=JSON.parse(localStorage.getItem(STORE_KEY)||'null'); }catch{}
   if(!s) return;
   ['profile','customProfile','server','customServer','speed','hpd','wxMode','routeColor','retDefault','maxDur','paceModel','mass'].forEach(k=>{ if(s[k]!=null&&s[k]!=='') $(k).value=s[k]; });
   if(s.showArrows!=null) $('showArrows').checked=s.showArrows;

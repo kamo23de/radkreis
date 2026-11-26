@@ -25,6 +25,11 @@ Hinweise
 - Routing, Wetter, Ortssuche und Karten brauchen eine Internetverbindung.
 - GPX-Export öffnet auf dem iPad das Teilen-Menü (Komoot, Wahoo, Garmin, Dateien …).
 - Gespeicherte Planungen liegen lokal im Browser des Geräts.
+- „🔗 Planung als Link teilen“ erzeugt einen Link mit Start, Zielen und Einstellungen (Radius, Profil,
+  Startzeit, Tempo, max. Dauer, Rückweg, Pausen, Ranking-Gewichte) – zum Weitergeben oder um die
+  Planung auf einem anderen Gerät zu öffnen. Die Daten stehen im Link selbst (nach „#p=“), es wird
+  nichts auf einem Server gespeichert. Beim Öffnen ersetzt die geteilte Planung die eigene; über
+  „Meine Planung zurück“ in der Meldung lässt sich die eigene wiederherstellen.
 - Nach Änderungen an der App in sw.js die VERSION erhöhen, damit alte Offline-Caches entfernt werden.
   Neue Dateien unter js/ auch in die LOCAL-Liste in sw.js eintragen (für den Offline-Start).
 
@@ -55,6 +60,7 @@ Module (js/)
   ranking.js  Wegeauswertung, Bewertung, Gewichtung, Ranking
   render.js   Gesamt-Aktualisierung der Oberfläche
   storage.js  Speichern/Wiederherstellen im Browser (localStorage)
+  share.js    Planung als Link teilen und geteilte Links öffnen
 
 Tempo-Modell
 - „Tempo Ebene“ ist dein Dauertempo auf ebenem Asphalt bei Windstille. Daraus und aus dem

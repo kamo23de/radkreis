@@ -169,6 +169,76 @@ export function shiftYears(u,n){ // Unix-Sekunden um n Jahre zurück, gleicher K
   return Date.UTC(y,m,Math.min(d.getUTCDate(),dim),d.getUTCHours(),d.getUTCMinutes(),d.getUTCSeconds())/1000;
 }
 
+/* ================================================================ Teilbare Planungs-Links
+   Kompaktes Format (Version 1), als JSON → UTF-8 → base64url hinter „#p=“:
+   {v:1, s:[lat,lng,name], r:radius, p:profil, t:start(unix), sp:tempo, h:fahrstd/tag, d:max.dauer,
+    w:'c'=klima, m:'c'=konstant, kg:gewicht, rd:rückweg, ow:[gewichte], z:[[lat,lng,name,rückweg,pausen%], …]}
+   Standardwerte werden weggelassen, Koordinaten auf 5 Nachkommastellen (≈ 1 m) gerundet. */
+export const MAX_SHARED_TARGETS=30;
+const SHARE_WKEYS=['profile','weather','beauty','efficiency'];
+const RET_CODE={none:'n',best:'b',same:'s',alt:'a'}, RET_NAME={n:'none',b:'best',s:'same',a:'alt'};
+const r5=x=>Math.round(x*1e5)/1e5;
+const cut=(x,max=120)=>typeof x==='string'&&x.trim()?x.trim().slice(0,max):null;
+export function planToShare(p){
+  const c={v:1, s:[r5(p.start.lat),r5(p.start.lng)]};
+  const sn=cut(p.startName); if(sn) c.s.push(sn);
+  if(+p.radiusKm&&+p.radiusKm!==100) c.r=+p.radiusKm;
+  if(p.profile) c.p=p.profile;
+  if(p.startUnix) c.t=Math.round(p.startUnix);
+  if(+p.speed) c.sp=+p.speed;
+  if(+p.hpd&&+p.hpd!==24) c.h=+p.hpd;
+  const d=cut(String(p.maxDur??''),10); if(d) c.d=d;
+  if(p.wxMode==='clim') c.w='c';
+  if(p.paceModel==='const') c.m='c';
+  if(+p.mass&&+p.mass!==85) c.kg=+p.mass;
+  if(p.retDefault&&p.retDefault!=='none') c.rd=RET_CODE[p.retDefault];
+  if(p.optWeights) c.ow=SHARE_WKEYS.map(k=>Math.round(+p.optWeights[k]||0));
+  c.z=(p.targets||[]).slice(0,MAX_SHARED_TARGETS).map(t=>{
+    const a=[r5(t.lat),r5(t.lng),cut(t.name)||0], rc=RET_CODE[t.retMode]||'n', pp=Math.round(+t.pausePct||0);
+    if(rc!=='n'||pp) a.push(rc); if(pp) a.push(pp);
+    return a;
+  });
+  return c;
+}
+export function shareToPlan(c){ // prüft den (fremden) Inhalt eines Links; ungültig → null
+  if(!c||typeof c!=='object'||c.v!==1||!Array.isArray(c.s)) return null;
+  const num=(x,lo,hi)=>{ if(x==null||x==='') return null; const n=Number(x); return isFinite(n)&&n>=lo&&n<=hi?n:null; };
+  const ll=a=>Array.isArray(a)&&num(a[0],-90,90)!=null&&num(a[1],-180,180)!=null?{lat:+a[0],lng:+a[1]}:null;
+  const start=ll(c.s); if(!start) return null;
+  const p={
+    start, startName:cut(c.s[2])||'',
+    radiusKm:num(c.r,1,2000)??100,
+    profile:typeof c.p==='string'&&/^[A-Za-z0-9_-]{1,40}$/.test(c.p)?c.p:'trekking',
+    startUnix:num(c.t,1e9,1e10),
+    speed:String(num(c.sp,5,60)??25),
+    hpd:String(num(c.h,1,24)??24),
+    maxDur:typeof c.d==='string'&&parseDurationH(c.d)?c.d.trim().slice(0,10):'',
+    wxMode:c.w==='c'?'clim':'auto',
+    paceModel:c.m==='c'?'const':'phys',
+    mass:String(num(c.kg,30,200)??85),
+    retDefault:RET_NAME[c.rd]||'none'
+  };
+  if(Array.isArray(c.ow)&&c.ow.length===SHARE_WKEYS.length&&c.ow.every(x=>num(x,0,100)!=null))
+    p.optWeights=Object.fromEntries(SHARE_WKEYS.map((k,i)=>[k,+c.ow[i]]));
+  p.targets=(Array.isArray(c.z)?c.z:[]).slice(0,MAX_SHARED_TARGETS).map(a=>{
+    const q=ll(a); if(!q) return null;
+    return {...q, name:cut(a[2]), retMode:RET_NAME[a[3]]||'none', pausePct:num(a[4],0,90)??0};
+  }).filter(Boolean);
+  return p;
+}
+export function encodeShare(obj){
+  const bytes=new TextEncoder().encode(JSON.stringify(obj)); let bin='';
+  bytes.forEach(b=>{ bin+=String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+export function decodeShare(str){ // → Objekt oder null
+  try{
+    if(typeof str!=='string'||!str||str.length>8000||!/^[A-Za-z0-9_-]+$/.test(str)) return null;
+    const bin=atob(str.replace(/-/g,'+').replace(/_/g,'/')+'==='.slice((str.length+3)%4));
+    return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(bin,ch=>ch.charCodeAt(0))));
+  }catch{ return null; }
+}
+
 /* ================================================================ Wegeattribute aus den BRouter-Meldungen */
 export const PAVED=new Set(['asphalt','concrete','concrete:plates','concrete:lanes','paved','chipseal','paving_stones','metal','wood']);
 export const ROUGH=new Set(['sett','cobblestone','unhewn_cobblestone','cobblestone:flattened','grass_paver']);

@@ -34,10 +34,10 @@ function nameTarget(r){ const ll=r.latlng; reverseName(ll).then(n=>{ if(n && r.l
 export const snapshot=r=>({lat:r.latlng.lat,lng:r.latlng.lng,name:r.name,retMode:r.retMode,pausePct:r.pausePct||0,
   num:r.num,color:r.color,index:state.routes.indexOf(r)});
 let toastTimer=null;
-export function toast(text,{action=null,actionLabel='Rückgängig'}={}){ // kurze Meldung, optional mit Aktion
+export function toast(text,{action=null,actionLabel='Rückgängig',ms=null}={}){ // kurze Meldung, optional mit Aktion
   const t=$('toast'), b=$('toastUndo');
   $('toastText').textContent=text; b.textContent=actionLabel; b.style.display=action?'':'none'; t.classList.add('on');
-  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('on'),action?8000:3000);
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('on'),ms??(action?8000:3000));
   b.onclick=action?()=>{ clearTimeout(toastTimer); t.classList.remove('on'); action(); }:null;
 }
 export function offerUndo(text,items){

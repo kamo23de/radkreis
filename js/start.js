@@ -28,7 +28,7 @@ export async function setStart(ll,label,{recompute=true,fit=true}={}){
 function updateStartInfo(){
   const el=$('startInfo'); el.style.display='block';
   el.innerHTML=`<b>Start:</b> ${esc(state.startName)}<br><span style="color:var(--muted)">${state.start.lat.toFixed(5)}, ${state.start.lng.toFixed(5)}</span>`;
-  startMarker.bindTooltip('Start: '+state.startName);
+  startMarker.bindTooltip('Start: '+esc(state.startName));   // Tooltips sind HTML – Namen maskieren
 }
 export function drawCircle(){
   if(!state.start) return;
