@@ -6,10 +6,12 @@ import { label, pinIcon } from './targets.js';
 import { renderList, renderTable } from './list.js';
 import { renderBest, renderChart, renderWxChart, renderWxStatus } from './charts.js';
 import { computeRanking, renderRanking } from './ranking.js';
+import { updatePaceUI } from './pace.js';
 
 /* ================================================================ Gesamt-Render */
 export function renderAll(){
   state.ranking=computeRanking();   // alle berechneten Routen automatisch bewerten
+  updatePaceUI();
   const colorMode=$('routeColor').value;
   state.routes.forEach(r=>{
     r.marker.setIcon(pinIcon(r));

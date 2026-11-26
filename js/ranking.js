@@ -2,11 +2,11 @@
 import { haversine, parseTags, surfaceClass, trafficLevel } from './core.js';
 import { state } from './state.js';
 import { $, esc, fmtDT, km, nf0, nf1 } from './util.js';
-import { profileName } from './routing.js';
 import { fmtH, startUnix, timePlan } from './weather.js';
 import { label, select } from './targets.js';
 import { renderAll } from './render.js';
 import { save } from './storage.js';
+import { bikeType, fmtV, paceModel, paceShort, vReqTitle } from './pace.js';
 
 /* ================================================================ Routenoptimierung
    Endpunkte (max. 10) auf dem Umkreis setzen, Routen nach gewichteten Kriterien bewerten und ranken.
@@ -56,7 +56,6 @@ export function wayStats(r,legs){
   const sh=o=>Object.fromEntries(Object.entries(o).map(([k,v])=>[k,v/total]));
   return {total, surf:sh(surf), traf:traf.map(v=>v/total), cycle:cycle/total, maxGrad, steepShare:r.lengthM?steep/r.lengthM:0};
 }
-function bikeType(){ const p=profileName().toLowerCase(); return /gravel|mtb/.test(p)?'offroad':/trekking|safety|hiking/.test(p)?'mixed':'road'; }
 const SURF_W={
   road:   {paved:1, rough:.4, good:.35, unpaved:.05, unknown:.75},
   mixed:  {paved:1, rough:.6, good:.8,  unpaved:.4,  unknown:.8},
@@ -69,12 +68,14 @@ export function timeRowHtml(r){
     <input type="number" class="pauseInp" data-pause="${r.id}" min="0" max="90" step="5" value="${r.pausePct||0}" style="width:62px;padding:3px 6px;min-height:0;font-size:12.5px"> %</label>`;
   const nightTxt=h=>h>0.01?` + Nachtruhe ${fmtH(h)}`:'';
   let info;
-  const durTxt=`<span title="Bei deinem Ø-Tempo von ${nf1.format(pl.v)} km/h">⏱ Fahrzeit ${fmtH(pl.moveAtSpeed)} + Pausen ${fmtH(pl.pauseAtSpeed)}${nightTxt(pl.nightAtSpeed)} ≈ <b>${fmtH(pl.durAtSpeed)}</b></span>`;
+  const phys=paceModel()==='phys';
+  const how=phys?`Tempo-Modell mit ${nf1.format(pl.v)} km/h in der Ebene${pl.windy?' und Wind zur Startzeit':' (ohne Wind – Wetter noch nicht geladen)'}`:`bei deinem Ø-Tempo von ${nf1.format(pl.v)} km/h`;
+  const durTxt=`<span title="${how}">⏱ Fahrzeit ${fmtH(pl.moveAtSpeed)}${phys?` (Ø ${nf1.format(pl.vAvg)} km/h)`:''} + Pausen ${fmtH(pl.pauseAtSpeed)}${nightTxt(pl.nightAtSpeed)} ≈ <b>${fmtH(pl.durAtSpeed)}</b></span>`;
   if(pl.T){
-    info=`<span title="Mindestens nötiges Durchschnittstempo während der Fahrt, damit ${km(r.lengthM)} km in ${fmtH(pl.T)} inkl. ${nf0.format(pl.p*100)} % Pausen${pl.hpd<24?` und max. ${nf1.format(pl.hpd)} Fahrstunden pro Tag`:''} geschafft werden">
-        🎯 nötiges Ø <b>${nf1.format(pl.vReq)} km/h</b></span>${durTxt}
-      ${pl.ok?`<span class="badge" style="background:#e6f4ea;color:var(--ok)" title="Mit deinem Ø-Tempo bleiben von ${fmtH(pl.T)} noch ${fmtH(pl.buffer)} übrig">✓ machbar, ${fmtH(pl.buffer)} Puffer</span>`
-             :`<span class="badge warn" title="Mit deinem Ø-Tempo von ${nf1.format(pl.v)} km/h dauert die Tour ${fmtH(-pl.buffer)} länger als ${fmtH(pl.T)}">⚠ zu knapp: ${fmtH(-pl.buffer)} über ${fmtH(pl.T)}</span>`}`;
+    info=`<span title="${phys?'Mindestens nötiges Tempo in der Ebene (das Modell rechnet daraus Steigung, Wind und Untergrund hoch)':'Mindestens nötiges Durchschnittstempo während der Fahrt'}, damit ${km(r.lengthM)} km in ${fmtH(pl.T)} inkl. ${nf0.format(pl.p*100)} % Pausen${pl.hpd<24?` und max. ${nf1.format(pl.hpd)} Fahrstunden pro Tag`:''} geschafft werden">
+        🎯 ${vReqTitle()} <b>${fmtV(pl.vReq)}</b></span>${durTxt}
+      ${pl.ok?`<span class="badge" style="background:#e6f4ea;color:var(--ok)" title="Mit deinem Tempo bleiben von ${fmtH(pl.T)} noch ${fmtH(pl.buffer)} übrig">✓ machbar, ${fmtH(pl.buffer)} Puffer</span>`
+             :`<span class="badge warn" title="Mit deinem Tempo (${how}) dauert die Tour ${fmtH(-pl.buffer)} länger als ${fmtH(pl.T)}">⚠ zu knapp: ${fmtH(-pl.buffer)} über ${fmtH(pl.T)}</span>`}`;
   } else {
     info=`${durTxt}<span style="color:var(--muted)">(max. Dauer nicht gesetzt)</span>`;
   }
@@ -166,15 +167,15 @@ export function renderRanking(){
   if(!R||!R.length){ pane.innerHTML=weights+'<div class="empty">Bitte mindestens ein Kriterium gewichten.</div>'; wireRankPane(); return; }
   const act=CRITERIA.filter(c=>+state.optWeights[c.key]>0);
   pane.innerHTML=weights+`<table><thead><tr><th>Rang</th><th>Ziel</th><th>Gesamt</th>${act.map(c=>`<th title="${c.desc}">${c.icon} ${c.name.split(' ')[0]}</th>`).join('')}
-    <th>Länge</th><th>nötiges Ø</th><th>hm</th><th>befestigt</th><th>verkehrsarm</th><th>Hauptstr.</th><th>max. Steig.</th><th>Ø Wind</th><th>Regen</th></tr></thead><tbody>
+    <th>Länge</th><th>${vReqTitle()}</th><th>hm</th><th>befestigt</th><th>verkehrsarm</th><th>Hauptstr.</th><th>max. Steig.</th><th>Ø Wind</th><th>Regen</th></tr></thead><tbody>
     ${R.map(x=>{ const r=x.r,w=r.way&&r.way.total?r.way:null; return `<tr data-id="${r.id}" class="${r.id===state.selectedId?'sel':''}" style="cursor:pointer">
       <td><span class="rank r${x.rank}">${x.rank}</span></td><td><span class="sw" style="background:${r.color}"></span>${r.num} · ${esc(label(r))}</td>
       <td>${sbar(x.score.total)}</td>${act.map(c=>`<td>${sbar(x.score[c.key])}</td>`).join('')}
-      <td>${km(r.lengthM)} km</td><td>${(pl=>pl&&pl.T?`<span style="color:${pl.ok?'inherit':'var(--err)'}" title="${pl.ok?'machbar':'mit deinem Ø-Tempo zu knapp'}">${nf1.format(pl.vReq)} km/h${pl.ok?'':' ⚠'}</span>`:'–')(timePlan(r))}</td><td>${nf0.format(r.ascent)}</td><td>${w?pct(w.surf.paved):'–'}</td><td>${w?pct(w.traf[0]+w.traf[1]):'–'}</td><td>${w?pct(w.traf[3]):'–'}</td>
+      <td>${km(r.lengthM)} km</td><td>${(pl=>pl&&pl.T?`<span style="color:${pl.ok?'inherit':'var(--err)'}" title="${pl.ok?'machbar':'mit deinem Tempo zu knapp'}">${fmtV(pl.vReq)}${pl.ok?'':' ⚠'}</span>`:'–')(timePlan(r))}</td><td>${nf0.format(r.ascent)}</td><td>${w?pct(w.surf.paved):'–'}</td><td>${w?pct(w.traf[0]+w.traf[1]):'–'}</td><td>${w?pct(w.traf[3]):'–'}</td>
       <td>${r.way?nf0.format(r.way.maxGrad*100)+' %':'–'}</td>
       <td>${r.wx&&r.wx.avgHead!=null?`<span style="color:${r.wx.avgHead>=0.5?'var(--head)':r.wx.avgHead<=-0.5?'var(--tail)':'inherit'}">${r.wx.avgHead>0?'+':''}${nf1.format(r.wx.avgHead)}</span>`:'–'}</td>
       <td>${r.wx&&r.wx.rainMm!=null?nf1.format(r.wx.rainMm)+' mm':'–'}</td></tr>`; }).join('')}
-  </tbody></table><div class="hint">Scores 0–100 (höher = besser). Profil berücksichtigt Radtyp „${bikeType()==='road'?'Rennrad':bikeType()==='offroad'?'Gravel/MTB':'Trekking'}“ (aus dem Routing-Profil). Wetter bezogen auf Start ${fmtDT(startUnix())}. Die Rangliste aktualisiert sich automatisch bei neuen Zielen und bei Änderung von Gewichten, Startzeit oder Tempo. Die Gewichte ergeben zusammen höchstens 100 %.</div>`;
+  </tbody></table><div class="hint">Scores 0–100 (höher = besser). Profil berücksichtigt Radtyp „${bikeType()==='road'?'Rennrad':bikeType()==='offroad'?'Gravel/MTB':'Trekking'}“ (aus dem Routing-Profil). Wetter bezogen auf Start ${fmtDT(startUnix())} (${esc(paceShort())}). Die Rangliste aktualisiert sich automatisch bei neuen Zielen und bei Änderung von Gewichten, Startzeit oder Tempo. Die Gewichte ergeben zusammen höchstens 100 %.</div>`;
   wireRankPane();
 }
 function wireRankPane(){

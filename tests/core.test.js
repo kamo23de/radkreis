@@ -141,3 +141,87 @@ test('trafficLevel', () => {
   assert.equal(t('highway=secondary'), 3);
   assert.equal(t('highway=secondary cycleway:right=track'), 2);
 });
+
+/* ---- Tempo-Modell (Fahrphysik) */
+const RB = C.BIKES.road, riderR = { m: 85, cda: RB.cda, crr: RB.crr.paved };
+const kmh = (P, o) => C.speedFor(P, { ...riderR, ...o }, 1.1, RB.vmax / 3.6) * 3.6;
+
+test('speedFor ist die Umkehrung von powerAt', () => {
+  for (const [v, o] of [[25, {}], [12, { grade: 0.05 }], [30, { wind: -3 }], [18, { wind: 4, grade: 0.01 }]]) {
+    const P = C.powerAt(v / 3.6, { ...riderR, ...o });
+    near(kmh(P, o), v, 0.01, JSON.stringify(o));
+  }
+});
+
+test('Kalibrierung: in der Ebene ohne Wind ergibt sich genau das eingestellte Tempo', () => {
+  const P = C.flatPower(25, riderR);
+  near(kmh(P, {}), 25, 0.01);
+  assert.ok(P > 80 && P < 200, `plausible Leistung, erhalten ${P}`);
+});
+
+test('Steigung, Gefälle, Wind und Untergrund wirken in die richtige Richtung', () => {
+  const P = C.flatPower(25, riderR);
+  assert.ok(kmh(P, { grade: 0.03 }) < kmh(P, { grade: 0.01 }));
+  assert.ok(kmh(P, { grade: -0.02 }) > 25);
+  assert.ok(kmh(P, { wind: 3 }) < 25 && kmh(P, { wind: -3 }) > 25);
+  assert.ok(kmh(P, { crr: RB.crr.unpaved }) < 25);
+  near(kmh(P, { grade: -0.15 }), RB.vmax, 1e-6, 'steil bergab: Höchsttempo');
+  near(kmh(P, { grade: 0.25 }), 1.1 * 3.6, 1e-6, 'sehr steil: Schiebetempo');
+});
+
+test('speedFor: starker Rückenwind schneller als der Wind ist eindeutig lösbar', () => {
+  const P = C.flatPower(20, riderR);
+  const v = kmh(P, { wind: -8 });   // 28,8 km/h Rückenwind
+  assert.ok(v > 20 && v <= RB.vmax);
+  near(C.powerAt(v / 3.6, { ...riderR, wind: -8 }), P, 0.5);
+});
+
+test('powerFactor: bergauf mehr, bergab weniger Leistung', () => {
+  assert.equal(C.powerFactor(0), 1);
+  near(C.powerFactor(0.08), 1.6, 1e-9);
+  near(C.powerFactor(0.2), 1.6, 1e-9);
+  assert.equal(C.powerFactor(-0.05), 0);
+  near(C.powerFactor(-0.025), 0.5, 1e-9);
+});
+
+const ramp = (n, step, rise, base = 0) => Array.from({ length: n + 1 }, (_, i) => [10 + i * step, 51, base + i * rise]);
+
+test('buildSegments: Länge, Steigung und Richtung', () => {
+  const coords = ramp(100, 0.001, 3);            // ~70 m je Punkt, 3 m höher → ≈ 4,3 %
+  const cum = C.cumDist(coords), L = cum.at(-1);
+  const segs = C.buildSegments(coords, cum);
+  near(segs.reduce((a, s) => a + s.len, 0), L, 1e-6);
+  assert.equal(segs[0].d0, 0); near(segs.at(-1).d1, L, 1e-6);
+  for (const s of segs) { near(s.grade, 300 / L, 0.002); near(s.heading, 90, 1); }
+  // Teilstück (z. B. Rückweg ab Wendepunkt)
+  const part = C.buildSegments(coords, cum, { from: L / 2, to: L });
+  near(part[0].d0, L / 2, 1e-6); near(part.reduce((a, s) => a + s.len, 0), L / 2, 1e-6);
+  // ohne Höhen: flach
+  assert.ok(C.buildSegments(coords.map(([x, y]) => [x, y]), cum).every(s => s.grade === 0));
+});
+
+test('movingProfile: bergauf dauert länger als in der Ebene, ergibt ohne Steigung Strecke ÷ Tempo', () => {
+  const flat = ramp(100, 0.001, 0), up = ramp(100, 0.001, 3);
+  const P = C.flatPower(25, riderR), o = { P, m: 85, cda: RB.cda, crrOf: () => RB.crr.paved, vmaxKmh: RB.vmax };
+  const cf = C.cumDist(flat), tf = C.movingProfile(C.buildSegments(flat, cf), o).at(-1);
+  near(tf, cf.at(-1) / 1000 / 25, 1e-4, 'Ebene auf Meereshöhe');
+  // in 1500 m Höhe ist die Luft dünner → etwas schneller
+  const high = ramp(100, 0.001, 0, 1500);
+  assert.ok(C.movingProfile(C.buildSegments(high, C.cumDist(high)), o).at(-1) < tf);
+  const cu = C.cumDist(up), tu = C.movingProfile(C.buildSegments(up, cu), o).at(-1);
+  assert.ok(tu > tf * 1.5, `bergauf ${tu} h vs. eben ${tf} h`);
+  // Gegenwind verlängert, Rückenwind verkürzt
+  const segs = C.buildSegments(flat, cf);
+  assert.ok(C.movingProfile(segs, { ...o, windOf: () => 3 }).at(-1) > tf);
+  assert.ok(C.movingProfile(segs, { ...o, windOf: () => -3 }).at(-1) < tf);
+});
+
+test('elapsedFromMoving entspricht elapsedHours', () => {
+  near(C.elapsedFromMoving(12, { hpd: 10, p: 0.2 }), C.elapsedHours(300, { v: 25, hpd: 10, p: 0.2 }), 1e-9);
+});
+
+test('valueAt interpoliert linear und begrenzt an den Rändern', () => {
+  assert.equal(C.valueAt([0, 10, 20], [0, 1, 3], 15), 2);
+  assert.equal(C.valueAt([0, 10, 20], [0, 1, 3], -5), 0);
+  assert.equal(C.valueAt([0, 10, 20], [0, 1, 3], 99), 3);
+});

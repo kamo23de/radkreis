@@ -92,7 +92,7 @@
     </div>
     <div class="row">
       <div>
-        <label for="speed">Ø Tempo (km/h)</label>
+        <label for="speed" id="speedLbl">Tempo Ebene (km/h)</label>
         <input type="number" id="speed" min="5" max="60" step="0.5" value="25">
       </div>
       <div>
@@ -111,6 +111,20 @@
         </select>
       </div>
     </div>
+    <div class="row">
+      <div>
+        <label for="paceModel">Tempo-Modell</label>
+        <select id="paceModel">
+          <option value="phys">Steigung, Wind &amp; Untergrund</option>
+          <option value="const">konstantes Ø-Tempo</option>
+        </select>
+      </div>
+      <div>
+        <label for="mass">Gewicht inkl. Rad (kg)</label>
+        <input type="number" id="mass" min="30" max="200" step="1" value="85">
+      </div>
+    </div>
+    <div class="hint" id="paceInfo"></div>
     <div class="row">
       <div>
         <label for="routeColor">Route einfärben nach</label>

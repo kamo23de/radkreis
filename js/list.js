@@ -8,6 +8,7 @@ import { fmtH, hoursPerDay, scheduleWeather, speedKmh, startUnix, timePlan, wxIn
 import { label, removeTarget, select } from './targets.js';
 import { bikerouterLink, exportOne, sendTo } from './export.js';
 import { rankOf, retRowHtml, timeRowHtml, wayRowHtml } from './ranking.js';
+import { fmtV, paceShort, vReqTitle } from './pace.js';
 import { renderAll } from './render.js';
 import { save } from './storage.js';
 
@@ -36,7 +37,7 @@ function wxRowHtml(r){
     <span title="Stärkste Böe entlang der Route">Böen bis ${nf0.format(w.maxGust)} km/h</span>
     <span class="${w.rainMm>=0.5?'rainv':''}" title="Regenmenge, die während der Fahrt fällt; Anteil der Strecke mit ≥ 0,2 mm/h">🌧 ${nf1.format(w.rainMm)} mm (${nf0.format(w.wetPct)} % nass)</span>
     ${w.tMin!=null?`<span>🌡 ${nf0.format(w.tMin)}–${nf0.format(w.tMax)} °C</span>`:''}
-    <span title="Ankunft bei ${nf1.format(speedKmh())} km/h${hoursPerDay()<24?`, ${nf1.format(hoursPerDay())} h/Tag`:''}">🏁 ${fmtDT(w.arrival)}</span>
+    <span title="Ankunft – ${esc(paceShort())}${hoursPerDay()<24?`, ${nf1.format(hoursPerDay())} h/Tag`:''}">🏁 ${fmtDT(w.arrival)}</span>
     ${w.climShare>0?`<span class="badge" title="Ohne Vorhersage: Mittel der letzten ${CLIM_YEARS} Jahre (ERA5)">${w.climShare>=.99?'Klimamittel':'teilw. Klimamittel'}</span>`:''}
     ${w.coverage<0.99?'<span class="badge warn">Wetterdaten lückenhaft</span>':''}
   </div>`;
@@ -113,8 +114,8 @@ const COLS=[
   ['head','Ø Wind (+ gegen)',m=>m.head!=null?`<span style="color:${m.head>=0.5?'var(--head)':m.head<=-0.5?'var(--tail)':'inherit'}">${m.head>0?'+':''}${nf1.format(m.head)} km/h</span>`:'–','min'],
   ['gust','max. Böe',m=>m.gust!=null?nf0.format(m.gust)+' km/h':'–','min'],
   ['rain','Regen',m=>m.rain!=null?nf1.format(m.rain)+' mm':'–','min'],
-  ['dur','Dauer bei Ø',m=>m.dur!=null?fmtH(m.dur):'–','min'],
-  ['vReq','nötiges Ø',m=>m.vReq!=null?`<span style="color:${m.vReq>speedKmh()?'var(--err)':'inherit'}">${nf1.format(m.vReq)} km/h</span>`:'–','min'],
+  ['dur','Dauer',m=>m.dur!=null?fmtH(m.dur):'–','min'],
+  ['vReq',()=>vReqTitle(),m=>m.vReq!=null?`<span style="color:${m.vReq>speedKmh()?'var(--err)':'inherit'}">${fmtV(m.vReq)}</span>`:'–','min'],
   ['arrival','Ankunft',m=>fmtDT(m.arrival),'min'],
 ];
 export function renderTable(){
@@ -124,12 +125,12 @@ export function renderTable(){
   const best={}; COLS.forEach(([k,,,mode])=>{ if(!mode) return; const v=ms.filter(m=>m[k]!=null).map(m=>m[k]); if(v.length>1) best[k]=Math.min(...v); });
   const {key,dir}=state.sort;
   ms.sort((a,b)=>{const x=a[key],y=b[key]; if(x==null&&y==null) return 0; if(x==null) return 1; if(y==null) return -1; return (typeof x==='string'?x.localeCompare(y,'de'):x-y)*dir;});
-  pane.innerHTML=`<table><thead><tr>${COLS.map(([k,t])=>`<th data-k="${k}">${t}${k===key?(dir>0?' ▲':' ▼'):''}</th>`).join('')}<th></th></tr></thead><tbody>
+  pane.innerHTML=`<table><thead><tr>${COLS.map(([k,t])=>`<th data-k="${k}">${typeof t==='function'?t():t}${k===key?(dir>0?' ▲':' ▼'):''}</th>`).join('')}<th></th></tr></thead><tbody>
     ${ms.map(m=>`<tr data-id="${m.id}" class="${m.id===state.selectedId?'sel':''}">${COLS.map(([k,,f])=>`<td class="${best[k]!=null&&m[k]===best[k]?'best':''}">${f(m)}</td>`).join('')}
     <td><button class="small" data-gpx="${m.id}" ${m.ok?'':'disabled'}>GPX</button>
       <button class="small svc komoot" data-svc="komoot" data-rid="${m.id}" ${m.ok?'':'disabled'}>Komoot</button>
       <button class="small svc garmin" data-svc="garmin" data-rid="${m.id}" ${m.ok?'':'disabled'}>Garmin</button></td></tr>`).join('')}
-  </tbody></table><div class="hint">Grün = bester Wert der Spalte. Umwegfaktor = Routenlänge ÷ Luftlinie. Ø Wind: positiv = Gegenwind, negativ = Rückenwind (Start ${fmtDT(startUnix())}, ${nf1.format(speedKmh())} km/h). Spaltenkopf anklicken zum Sortieren.</div>`;
+  </tbody></table><div class="hint">Grün = bester Wert der Spalte. Umwegfaktor = Routenlänge ÷ Luftlinie. Ø Wind: positiv = Gegenwind, negativ = Rückenwind (Start ${fmtDT(startUnix())}, ${esc(paceShort())}). Spaltenkopf anklicken zum Sortieren.</div>`;
   pane.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{const k=th.dataset.k; state.sort={key:k,dir:state.sort.key===k?-state.sort.dir:1}; renderTable();});
   pane.querySelectorAll('tbody tr').forEach(tr=>tr.onclick=e=>{ const g=e.target.dataset.gpx; if(g){exportOne(state.routes.find(r=>r.id===g)); return;}
     const sv=e.target.dataset.svc; if(sv){ sendTo(sv,state.routes.find(r=>r.id===e.target.dataset.rid)); return; } select(tr.dataset.id,{zoom:true}); });

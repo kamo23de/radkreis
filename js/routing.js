@@ -1,5 +1,5 @@
 // Radrouten-Radar – Modul „routing“
-import { bearing, climb, cumDist, destination, haversine, interpolate, overlapShare } from './core.js';
+import { bearing, climb, cumDist, destination, haversine, interpolate, overlapShare, parseTags, surfaceClass } from './core.js';
 import { LEG_M, MAX_PARALLEL, SEGMENT_THRESHOLD_M, SERVERS } from './config.js';
 import { state } from './state.js';
 import { $ } from './util.js';
@@ -114,6 +114,20 @@ function joinLegs(legs){
   legs.forEach((L,k)=>{ (k?L.coords.slice(1):L.coords).forEach(p=>coords.push(p)); len+=+L.props['track-length']||0; time+=+L.props['total-time']||0; servers.add(L.server); });
   return {coords,len,time,servers};
 }
+function surfParts(legs){ // [[Länge, Untergrundklasse], …] in Fahrtrichtung aus den BRouter-Meldungen
+  const parts=[];
+  legs.forEach(L=>{
+    const m=L.props&&L.props.messages; if(!Array.isArray(m)||m.length<2) return;
+    const iD=m[0].indexOf('Distance'), iT=m[0].indexOf('WayTags'); if(iD<0||iT<0) return;
+    for(let i=1;i<m.length;i++){ const d=+m[i][iD]||0; if(d>0) parts.push([d,surfaceClass(parseTags(m[i][iT]))]); }
+  });
+  return parts;
+}
+function placeSurf(parts,from,len,out){ // Abschnitte auf die Routendistanz [from, from+len] skalieren
+  const tot=parts.reduce((a,p)=>a+p[0],0);
+  if(!tot){ out.ends.push(from+len); out.cls.push('unknown'); return; }
+  let acc=from; parts.forEach(([d,c])=>{ acc+=d/tot*len; out.ends.push(acc); out.cls.push(c); });
+}
 export async function computeRoute(r){
   if(!state.start) return;
   r.ctrl&&r.ctrl.abort();
@@ -160,7 +174,11 @@ export async function computeRoute(r){
     const cumS=cum.map((x,i)=>i<=oi? x*outLen/rawOut : outLen+(x-cum[oi])*(retLen||rawRet)/rawRet);
     const eles=coords.map(p=>p.length>2?p[2]:null), valid=eles.filter(e=>e!=null);
     const {up,down}=climb(eles);
-    Object.assign(r,{status:'ok', coords, cum:cumS, lengthM:len, outLen, retLen, outIdx:oi, overlap, retModeUsed:mode, timeS:time, ascent:up, descent:down,
+    // Untergrund entlang der Route (für den Rollwiderstand im Tempo-Modell)
+    const outParts=surfParts(outLegs);
+    const retParts=mode==='none'?[]:mode==='same'?outParts.slice().reverse():surfParts(legsAll.slice(outLegs.length));
+    const surfProf={ends:[],cls:[]}; placeSurf(outParts,0,outLen,surfProf); if(retLen) placeSurf(retParts,outLen,retLen,surfProf);
+    Object.assign(r,{surfProf, status:'ok', coords, cum:cumS, lengthM:len, outLen, retLen, outIdx:oi, overlap, retModeUsed:mode, timeS:time, ascent:up, descent:down,
       maxEle:valid.length?Math.max(...valid):null, minEle:valid.length?Math.min(...valid):null, beeline:d, legs:legsAll.length});
     buildSamples(r);
     r.way=wayStats(r,legsAll);

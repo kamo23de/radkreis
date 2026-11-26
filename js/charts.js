@@ -3,9 +3,10 @@ import { CLIM_YEARS } from './config.js';
 import { state } from './state.js';
 import { $, compass, dtf, dtfShort, fmtDT, headTxt, km, nf0, nf1, tf } from './util.js';
 import { hoverMarker, map } from './map.js';
-import { bestStartSeries, climYears, hoursPerDay, maxDurationH, setStartUnix, speedKmh, startUnix, wxInfo, wxMode } from './weather.js';
+import { bestStartSeries, climYears, hoursPerDay, maxDurationH, setStartUnix, startUnix, wxInfo, wxMode } from './weather.js';
 import { hwColor } from './wxmap.js';
 import { label, select } from './targets.js';
+import { paceKey, paceModel } from './pace.js';
 
 /* ================================================================ Diagramme */
 function hexA(hex,a){ const n=parseInt(hex.slice(1),16); return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`; }
@@ -66,6 +67,7 @@ export const wxChart=new Chart($('wxChart'),{
           if(ds==='rain') return `Regen ${nf1.format(y)} mm/h${it.raw.pp!=null?` (${nf0.format(it.raw.pp)} %)`:''}`;
           if(ds==='ws') return `Wind ${nf0.format(y)} km/h aus ${compass(it.raw.wd)}`;
           if(ds==='tmp') return `Temperatur ${nf0.format(y)} °C`;
+          if(ds==='v') return `Tempo (Modell) ${nf1.format(y)} km/h`;
           return `${it.dataset.label}: ${nf0.format(y)} km/h`; }
       }}
     },
@@ -85,6 +87,10 @@ export function renderWxChart(){
     {key:'g',label:'Böen',type:'line',data:S.map(s=>({...P(s),y:s.wx.g})),borderColor:'#90a4ae',backgroundColor:'#90a4ae',borderDash:[5,4],borderWidth:1.5,pointRadius:0,yAxisID:'y',order:2},
     {key:'rain',label:'Regen',type:'bar',data:S.map(s=>({...P(s),y:s.wx.p})),backgroundColor:'rgba(30,111,208,.6)',yAxisID:'y2',barPercentage:.6,categoryPercentage:1,order:4}
   ]:[];
+  if(S.length>1&&paceModel()==='phys'&&S.every(s=>s.mt!=null)){ // Ø-Tempo zwischen benachbarten Stützpunkten
+    const vAt=i=>{ const a=S[Math.max(0,i-1)], b=S[Math.max(1,i)]; const h=b.mt-a.mt; return h>0?(b.d-a.d)/1000/h:null; };
+    wxChart.data.datasets.push({key:'v',label:'Tempo (Modell)',type:'line',data:S.map((s,i)=>({...P(s),y:vAt(i)})),borderColor:'#7b1fa2',backgroundColor:'#7b1fa2',borderWidth:2,pointRadius:0,stepped:'before',yAxisID:'y',order:0});
+  }
   wxChart.options.plugins.title.text=S.length?`${r.num} · ${label(r)} – Start ${fmtDT(startUnix())}, Ankunft ${fmtDT(r.wx.arrival)}${r.wx.climShare>0?' (Klimamittel)':''}`:'';
   wxChart.update();
 }
@@ -117,7 +123,7 @@ export function renderBest(){
   const box=$('bestStart'), empty=$('bestEmpty');
   let series=null;
   if(r&&r.samples&&r.wx){
-    const k=[r.id,r.lengthM,speedKmh(),hoursPerDay(),maxDurationH(),r.pausePct||0,wxMode(),wxInfo.at].join('|');
+    const k=[r.id,r.lengthM,paceKey(),hoursPerDay(),maxDurationH(),r.pausePct||0,wxMode(),wxInfo.at].join('|');
     if(bestCache.key!==k){ bestCache={key:k,data:bestStartSeries(r)}; }
     series=bestCache.data;
   }

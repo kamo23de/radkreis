@@ -54,7 +54,7 @@ $('clearBtn').onclick=()=>{
 $('onlySel').addEventListener('change',renderChart);
 // Wetter-Steuerung
 $('startTime').addEventListener('change',()=>{ save(); scheduleWeather(150); });
-['speed','hpd','wxMode'].forEach(id=>$(id).addEventListener('change',()=>{ save(); scheduleWeather(150); }));
+['speed','hpd','wxMode','paceModel','mass'].forEach(id=>$(id).addEventListener('change',()=>{ save(); scheduleWeather(150); }));
 ['routeColor','showArrows','arrowsAll'].forEach(id=>$(id).addEventListener('change',()=>{ save(); renderAll(); }));
 document.querySelectorAll('[data-shift]').forEach(b=>b.onclick=()=>{
   const v=b.dataset.shift; setStartUnix(v==='now'?nextFullHour():startUnix()+(+v)*3600);

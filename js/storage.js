@@ -18,7 +18,7 @@ export function save(){
       profile:$('profile').value, customProfile:$('customProfile').value, server:$('server').value, customServer:$('customServer').value,
       startTime:$('startTime').value, speed:$('speed').value, hpd:$('hpd').value, wxMode:$('wxMode').value,
       routeColor:$('routeColor').value, showArrows:$('showArrows').checked, arrowsAll:$('arrowsAll').checked, optWeights:state.optWeights,
-      retDefault:$('retDefault').value, maxDur:$('maxDur').value,
+      retDefault:$('retDefault').value, maxDur:$('maxDur').value, paceModel:$('paceModel').value, mass:$('mass').value,
       defaultPause:state.defaultPause??0,
       targets:state.routes.map(r=>({lat:r.latlng.lat,lng:r.latlng.lng,name:r.name,retMode:r.retMode,pausePct:r.pausePct||0}))
     }));
@@ -28,7 +28,7 @@ export function restore(){
   $('startTime').value=toLocalInput(new Date(nextFullHour()*1000));
   let s=null; try{ s=JSON.parse(localStorage.getItem(STORE_KEY)||'null'); }catch{}
   if(!s) return;
-  ['profile','customProfile','server','customServer','speed','hpd','wxMode','routeColor','retDefault','maxDur'].forEach(k=>{ if(s[k]!=null&&s[k]!=='') $(k).value=s[k]; });
+  ['profile','customProfile','server','customServer','speed','hpd','wxMode','routeColor','retDefault','maxDur','paceModel','mass'].forEach(k=>{ if(s[k]!=null&&s[k]!=='') $(k).value=s[k]; });
   if(s.showArrows!=null) $('showArrows').checked=s.showArrows;
   if(s.optWeights){ Object.assign(state.optWeights,s.optWeights); normalizeWeights(); }
   if(s.arrowsAll!=null) $('arrowsAll').checked=s.arrowsAll;
