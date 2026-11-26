@@ -1,9 +1,12 @@
 // Radrouten-Radar – Service Worker: App-Gerüst offline verfügbar machen.
 // Routing (bikerouter.de), Wetter (Open-Meteo), Suche und Kartenkacheln laufen immer übers Netz.
 // VERSION bei jeder Veröffentlichung erhöhen, damit alte Caches entfernt werden.
-const VERSION = 'rr-v2';
+const VERSION = 'rr-v3';
 const LOCAL = [
-  './', './index.html', './core.js', './manifest.webmanifest',
+  './', './index.html', './manifest.webmanifest', './css/app.css',
+  './js/charts.js', './js/config.js', './js/core.js', './js/export.js', './js/geocode.js', './js/list.js',
+  './js/main.js', './js/map.js', './js/ranking.js', './js/render.js', './js/routing.js', './js/start.js',
+  './js/state.js', './js/storage.js', './js/targets.js', './js/util.js', './js/weather.js', './js/wxmap.js',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'
 ];
 // Bibliotheken mit fester Version: ändern sich nie → Cache zuerst
@@ -33,7 +36,7 @@ self.addEventListener('fetch', e => {
     }).catch(() => caches.match('./index.html')));
     return;
   }
-  // Eigene Dateien (core.js, Manifest, Icons): erst Netz, offline aus dem Cache
+  // Eigene Dateien (Module, CSS, Manifest, Icons): erst Netz, offline aus dem Cache
   if (url.origin === self.location.origin) {
     e.respondWith(fetch(req).then(r => {
       if (cacheable(r)) { const copy = r.clone(); caches.open(VERSION).then(c => c.put(req, copy)); }

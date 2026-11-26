@@ -1,6 +1,7 @@
 {
   "name": "radrouten-radar",
   "private": true,
+  "type": "module",
   "description": "Radrouten im Umkreis planen und vergleichen – statische Web-App ohne Build-Schritt.",
   "scripts": {
     "test": "node --test"
