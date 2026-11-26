@@ -77,11 +77,14 @@ export function simplifyCoords(coords,tol=2,maxPts=10000){ // Douglas-Peucker in
    Pausen finden innerhalb des Fahrtags statt; ein Tag „unterwegs“ dauert hpd/(1−p) Stunden,
    der Rest bis 24 h ist Nachtruhe. */
 export function dayOnRoadH(hpd,p){ return Math.min(24,hpd/(1-p)); }
-export function elapsedHours(distKm,{v,hpd=24,p=0}){ // Gesamtdauer (h) für distKm inkl. Pausen und Nachtruhe
-  const road=distKm/v/(1-p), day=dayOnRoadH(hpd,p);
+export function elapsedFromMoving(moveH,{hpd=24,p=0}){ // Gesamtdauer (h) für moveH Stunden reine Fahrzeit inkl. Pausen und Nachtruhe
+  const road=moveH/(1-p), day=dayOnRoadH(hpd,p);
   if(day>=24) return road;
   const days=Math.floor(road/day+1e-9), rest=Math.max(0,road-days*day);
   return rest<1e-9&&days>0 ? (days-1)*24+day : days*24+rest;
+}
+export function elapsedHours(distKm,{v,hpd=24,p=0}){ // Gesamtdauer (h) für distKm bei konstantem Tempo v
+  return elapsedFromMoving(distKm/v,{hpd,p});
 }
 export function movingHoursWithin(T,{hpd=24,p=0}){ // reine Fahrzeit (h), die in T Stunden Gesamtdauer möglich ist
   const day=dayOnRoadH(hpd,p);
@@ -92,6 +95,70 @@ export function parseDurationH(s){ // „6“, „5,5“, „5:30“ → Stunden
   const v=String(s??'').trim().replace(',','.'); if(!v) return null;
   const m=v.match(/^(\d+):(\d{1,2})$/); const h=m?(+m[1])+(+m[2])/60:Number(v);
   return isFinite(h)&&h>0?h:null;
+}
+
+/* ================================================================ Fahrphysik (Tempo-Modell)
+   Leistungsbilanz: P·η = v·m·g·(sin θ + Crr·cos θ) + ½·ρ·CdA·(v+w)·|v+w|·v
+   v = Fahrtempo, w = Gegenwind in Fahrerhöhe (negativ = Rückenwind), θ = Steigungswinkel.
+   Die Dauerleistung P wird aus dem Tempo in der Ebene bei Windstille kalibriert. */
+const G=9.81, ETA=0.97, RHO0=1.2;
+export const WIND_RIDER_FACTOR=0.7;            // Wind in ca. 1,5 m Höhe ≈ 70 % des 10-m-Werts (offenes Gelände)
+export const rhoAt=ele=>RHO0*Math.exp(-(ele||0)/8400);  // Luftdichte nach Höhe über NN
+export const BIKES={                            // CdA (m²), Rollwiderstand je Untergrund, Höchsttempo bergab (km/h)
+  road:   {name:'Rennrad',    cda:0.40, vmax:50, crr:{paved:.006, rough:.011, good:.011, unpaved:.016, unknown:.007}},
+  mixed:  {name:'Trekking',   cda:0.55, vmax:40, crr:{paved:.007, rough:.011, good:.0095,unpaved:.013, unknown:.008}},
+  offroad:{name:'Gravel/MTB', cda:0.50, vmax:35, crr:{paved:.009, rough:.011, good:.0095,unpaved:.012, unknown:.0095}}
+};
+// Leistung je Steigung relativ zur Dauerleistung: bergauf wird mehr getreten (bis +60 % ab 8 %),
+// bergab weniger (ab −5 % nur noch rollen).
+export const powerFactor=g=>g>=0 ? 1+0.6*Math.min(g,0.08)/0.08 : Math.max(0,1+g/0.05);
+export function powerAt(v,{grade=0,wind=0,rho=RHO0,m,cda,crr}){ // nötige Tretleistung (W) bei Tempo v (m/s)
+  const c=1/Math.sqrt(1+grade*grade), sn=grade*c, va=v+wind;
+  return (v*m*G*(sn+crr*c)+0.5*rho*cda*va*Math.abs(va)*v)/ETA;
+}
+export function speedFor(P,opts,vmin=1.1,vmax=16.7){ // Tempo (m/s), bei dem die Leistung P erreicht wird
+  // Für P ≥ 0 ist {v > 0 : powerAt(v) ≥ P} ein Intervall [v*, ∞) → Bisektion ist eindeutig.
+  if(powerAt(vmax,opts)<=P) return vmax;      // bergab/Rückenwind: Höchsttempo (Bremsen)
+  if(powerAt(vmin,opts)>=P) return vmin;      // sehr steil: Schiebetempo
+  let lo=vmin,hi=vmax;
+  for(let k=0;k<26;k++){ const mid=(lo+hi)/2; if(powerAt(mid,opts)<P) lo=mid; else hi=mid; }
+  return (lo+hi)/2;
+}
+export function flatPower(v0kmh,{m,cda,crr}){ return powerAt(v0kmh/3.6,{m,cda,crr}); }
+
+function posAt(coords,cum,d){ // interpolierter Punkt [lng,lat,ele] bei Distanz d
+  const i=idxAt(cum,d); if(i===0) return coords[0];
+  const a=coords[i-1], b=coords[i], f=(cum[i]-cum[i-1])>0?(d-cum[i-1])/(cum[i]-cum[i-1]):0;
+  const ea=a.length>2?a[2]:null, eb=b.length>2?b[2]:null;
+  return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, ea==null||eb==null?(ea??eb):ea+(eb-ea)*f];
+}
+export function buildSegments(coords,cum,{from=0,to=cum[cum.length-1],segLen=250,maxSegs=800}={}){
+  // Route in Abschnitte von mind. segLen Metern teilen (Steigung über den Abschnitt geglättet)
+  const L=to-from; if(!(L>0)) return [];
+  const n=Math.max(1,Math.round(L/Math.max(segLen,L/maxSegs))), out=[];
+  let p0=posAt(coords,cum,from);
+  for(let k=0;k<n;k++){
+    const d0=from+L*k/n, d1=from+L*(k+1)/n, p1=posAt(coords,cum,d1), len=d1-d0;
+    const grade=p0[2]!=null&&p1[2]!=null&&len>0?Math.max(-0.25,Math.min(0.25,(p1[2]-p0[2])/len)):0;
+    out.push({d0,d1,len,grade,heading:bearing(llOf(p0),llOf(p1)),ele:p0[2]!=null&&p1[2]!=null?(p0[2]+p1[2])/2:(p0[2]??p1[2]??0)});
+    p0=p1;
+  }
+  return out;
+}
+export function movingProfile(segs,{P,m,cda,crrOf,vmaxKmh,windOf}){
+  // kumulierte reine Fahrzeit (h) an den Abschnittsenden; windOf(i) = Gegenwind (m/s) in Fahrerhöhe
+  const mt=new Float64Array(segs.length+1), vmax=vmaxKmh/3.6;
+  for(let i=0;i<segs.length;i++){
+    const s=segs[i];
+    const v=speedFor(P*powerFactor(s.grade),{grade:s.grade,wind:windOf?windOf(i):0,rho:rhoAt(s.ele),m,cda,crr:crrOf?crrOf(s):0.005},1.1,vmax);
+    mt[i+1]=mt[i]+s.len/v/3600;
+  }
+  return mt;
+}
+export function valueAt(ends,vals,d){ // lineare Interpolation über aufsteigende Stützstellen
+  const n=ends.length; if(d<=ends[0]) return vals[0]; if(d>=ends[n-1]) return vals[n-1];
+  const i=idxAt(ends,d), f=(d-ends[i-1])/(ends[i]-ends[i-1]||1);
+  return vals[i-1]+(vals[i]-vals[i-1])*f;
 }
 
 /* ================================================================ Klima: Zeitpunkte in frühere Jahre verschieben */

@@ -1,11 +1,12 @@
 // Radrouten-Radar – Modul „weather“
-import { bearing, deg, elapsedHours, idxAt, movingHoursWithin, parseDurationH, rad, shiftYears } from './core.js';
+import { bearing, deg, elapsedFromMoving, idxAt, movingHoursWithin, parseDurationH, rad, shiftYears } from './core.js';
 import { CLIM_YEARS, OM_ARCHIVE, OM_FORECAST, OM_VARS_AR, OM_VARS_FC, RAIN_WEIGHT } from './config.js';
 import { state } from './state.js';
 import { $ } from './util.js';
 import { renderWxStatus } from './charts.js';
 import { renderAll } from './render.js';
 import { save } from './storage.js';
+import { baseProfile, computeProfile, currentProfile, movingAt, movingTotal, paceModel, requiredFlatSpeed, windProfile } from './pace.js';
 
 /* ================================================================ Wetter (Open-Meteo) */
 const fcCache=new Map();     // key -> Vorhersage-Zeitreihe
@@ -117,37 +118,41 @@ function climAt(key,t,heading){ // Mittel über die letzten Jahre zur gleichen K
 function wxAt(key,t,heading){ return (wxMode()!=='clim'&&fcAt(key,t,heading)) || climAt(key,t,heading); }
 /* ---- Zeitplan: max. Dauer, Pausenanteil je Route, benötigtes Tempo
    Pausenanteil p = Standzeit / Zeit unterwegs (ohne Nachtruhe) → reine Fahrzeit = Zeit unterwegs · (1 − p).
-   Rechenmodell siehe core.js (elapsedHours / movingHoursWithin). */
+   Die reine Fahrzeit entlang der Route liefert das Tempo-Modell (pace.js); Pausen und Nachtruhe: core.js. */
 export const maxDurationH=()=>parseDurationH($('maxDur').value);
 const pauseFrac=r=>Math.min(0.9,Math.max(0,(+r.pausePct||0)/100));
 export function timePlan(r){ // Kennzahlen für die ganze Tour (mit Rückweg: Hin + Rück)
   if(r.status!=='ok'||!r.lengthM) return null;
   const Lkm=r.lengthM/1000, p=pauseFrac(r), T=maxDurationH(), v=speedKmh(), hpd=hoursPerDay();
-  const moveAtSpeed=Lkm/v, durAtSpeed=elapsedHours(Lkm,{v,hpd,p});     // Dauer bei eingestelltem Ø-Tempo inkl. Pausen und Nachtruhe
+  const prof=currentProfile(r), moveAtSpeed=movingTotal(prof);          // reine Fahrzeit laut Tempo-Modell
+  const durAtSpeed=elapsedFromMoving(moveAtSpeed,{hpd,p});               // inkl. Pausen und Nachtruhe
   const pauseAtSpeed=moveAtSpeed*p/(1-p), nightAtSpeed=Math.max(0,durAtSpeed-moveAtSpeed-pauseAtSpeed);
-  const plan={p, T, Lkm, v, hpd, durAtSpeed, moveAtSpeed, pauseAtSpeed, nightAtSpeed};
+  const plan={p, T, Lkm, v, hpd, durAtSpeed, moveAtSpeed, pauseAtSpeed, nightAtSpeed, vAvg:Lkm/moveAtSpeed, windy:!!prof.windy};
   if(T){
-    plan.vReq=Lkm/movingHoursWithin(T,{hpd,p});                         // mindestens nötiges Ø-Tempo in Bewegung
-    plan.ok=plan.vReq<=v+1e-9;
+    const moveMax=movingHoursWithin(T,{hpd,p});                          // in T verfügbare reine Fahrzeit
+    plan.vReq=paceModel()==='phys'?requiredFlatSpeed(r,moveMax):Lkm/moveMax; // nötiges Tempo (Ebene) bzw. nötiges Ø
+    plan.ok=durAtSpeed<=T+1e-9;
     plan.buffer=T-durAtSpeed;                                            // Zeitreserve mit eigenem Tempo (negativ = zu knapp)
   }
   return plan;
 }
-function tourElapsedH(r,d){ // Zeit (h) vom Start bis Distanz d (m) mit eigenem Ø-Tempo, inkl. anteiliger Pausen und Nachtruhe
-  // (Die max. Dauer ändert die Zeitpunkte nicht – sie liefert nur das nötige Ø-Tempo und die Machbarkeit.)
-  return elapsedHours(d/1000,{v:speedKmh(),hpd:hoursPerDay(),p:pauseFrac(r)});
-}
 export const fmtH=h=>{ if(h==null||!isFinite(h)) return '–'; const t=Math.round(h*60); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')} h`; };
-function assignTimes(r,t0=startUnix()){ r.samples.forEach(s=>{ s.t=t0+tourElapsedH(r,s.d)*3600; }); }
-function summarize(S,spMove){
+// Zeitpunkte der Stützpunkte: reine Fahrzeit aus dem Profil, dazu Pausen und Nachtruhe.
+// (Die max. Dauer ändert die Zeitpunkte nicht – sie liefert nur das nötige Tempo und die Machbarkeit.)
+function assignTimes(r,t0=startUnix(),prof=currentProfile(r)){
+  const o={hpd:hoursPerDay(),p:pauseFrac(r)};
+  r.samples.forEach(s=>{ s.mt=movingAt(prof,s.d); s.t=t0+elapsedFromMoving(s.mt,o)*3600; });
+}
+function summarize(S){
   let wsum=0,hw=0,rain=0,wetKm=0,gmax=null,tmin=null,tmax=null,cov=0,clim=0;
-  const sp=spMove||speedKmh();
+  const sp=speedKmh();
   for(const s of S){ const w=s.wx; if(!w) continue; cov++; if(w.src==='clim') clim++;
     gmax=Math.max(gmax??-Infinity,w.g); if(w.tmp!=null){ tmin=Math.min(tmin??Infinity,w.tmp); tmax=Math.max(tmax??-Infinity,w.tmp); } }
   for(let i=0;i<S.length-1;i++){
     const a=S[i].wx,b=S[i+1].wx; if(!a||!b) continue;
     const segKm=(S[i+1].d-S[i].d)/1000, p=(a.p+b.p)/2;
-    wsum+=segKm; hw+=(a.hw+b.hw)/2*segKm; rain+=p*segKm/sp; if(p>=0.2) wetKm+=segKm;
+    const h=S[i].mt!=null&&S[i+1].mt!=null?S[i+1].mt-S[i].mt:segKm/sp;   // Fahrzeit auf dem Abschnitt (h)
+    wsum+=segKm; hw+=(a.hw+b.hw)/2*segKm; rain+=p*h; if(p>=0.2) wetKm+=segKm;
   }
   if(S.length===1&&S[0].wx){ wsum=1; hw=S[0].wx.hw; }
   return {avgHead:wsum?hw/wsum:null, rainMm:wsum?rain:null, wetPct:wsum?wetKm/wsum*100:null, maxGust:gmax, tMin:tmin, tMax:tmax,
@@ -155,9 +160,15 @@ function summarize(S,spMove){
 }
 function applyWeather(r){
   if(!r.samples) return;
-  assignTimes(r);
-  r.samples.forEach(s=>{ s.wx=wxAt(s.key,s.t,s.heading); });
-  r.wx=summarize(r.samples,speedKmh());
+  const t0=startUnix(), fill=()=>r.samples.forEach(s=>{ s.wx=wxAt(s.key,s.t,s.heading); });
+  let prof=baseProfile(r);
+  assignTimes(r,t0,prof); fill();
+  // Wind beeinflusst das Tempo und damit die Zeitpunkte – zweimal iterieren genügt
+  if(paceModel()==='phys'&&r.samples.some(s=>s.wx)){
+    for(let k=0;k<2;k++){ prof=windProfile(r); assignTimes(r,t0,prof); fill(); }
+  }
+  r._prof=prof;
+  r.wx=summarize(r.samples);
 }
 export function scheduleWeather(delay=400){ clearTimeout(wxTimer); wxTimer=setTimeout(updateWeather,delay); }
 async function updateWeather(){
@@ -184,12 +195,20 @@ export function bestStartSeries(r){ // Score je möglicher Startstunde innerhalb
   if(!r||!r.samples||wxMode()==='clim') return null;
   const fs=r.samples.map(s=>fcCache.get(s.key)); if(fs.some(f=>!f||!f.n)) return null;
   const fEnd=Math.min(...fs.map(f=>f.t0+(f.n-1)*3600));
-  const offs=r.samples.map(s=>tourElapsedH(r,s.d)*3600), dur=offs[offs.length-1];
+  const o={hpd:hoursPerDay(),p:pauseFrac(r)}, phys=paceModel()==='phys';
+  const base=baseProfile(r), mt0=r.samples.map(s=>movingAt(base,s.d)), offs0=mt0.map(m=>elapsedFromMoving(m,o)*3600);
+  const wxFor=(t,offs)=>r.samples.map((s,i)=>fcAt(s.key,t+offs[i],s.heading));
   const out=[];
-  for(let t=nextFullHour(); t+dur<=fEnd; t+=3600){
-    const S=r.samples.map((s,i)=>({d:s.d, t:t+offs[i], wx:fcAt(s.key,t+offs[i],s.heading)}));
-    if(S.some(s=>!s.wx)) continue;
-    const sm=summarize(S,speedKmh());
+  for(let t=nextFullHour(); t+offs0[offs0.length-1]<=fEnd; t+=3600){
+    let mt=mt0, offs=offs0, wx=wxFor(t,offs);
+    if(wx.some(w=>!w)) continue;
+    if(phys){ // Tempo mit dem Wind dieser Startzeit neu berechnen
+      const prof=computeProfile(r,{wxOf:i=>wx[i]});
+      mt=r.samples.map(s=>movingAt(prof,s.d)); offs=mt.map(m=>elapsedFromMoving(m,o)*3600); wx=wxFor(t,offs);
+      if(wx.some(w=>!w)) continue;
+    }
+    const S=r.samples.map((s,i)=>({d:s.d, t:t+offs[i], mt:mt[i], wx:wx[i]}));
+    const sm=summarize(S);
     out.push({t, head:sm.avgHead, rain:sm.rainMm, score:sm.avgHead+RAIN_WEIGHT*sm.rainMm});
   }
   return out;

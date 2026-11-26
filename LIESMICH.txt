@@ -33,12 +33,13 @@ Module (js/)
   config.js   Konstanten (Server, Open-Meteo, Farben, Grenzwerte)
   state.js    gemeinsamer App-Zustand
   util.js     Formatierung, DOM-Helfer
-  core.js     reine Rechenfunktionen ohne DOM (Geo, Zeitmodell, Wegeattribute) – getestet
+  core.js     reine Rechenfunktionen ohne DOM (Geo, Zeitmodell, Fahrphysik, Wegeattribute) – getestet
   map.js      Leaflet-Karte und Kartenebenen
   geocode.js  Ortssuche und Ortsnamen (Nominatim)
   start.js    Startpunkt und Umkreis
   routing.js  Routenberechnung (BRouter), Etappen, Rückweg
   weather.js  Wetter/Klima (Open-Meteo), Zeitplan, Startzeit-Vergleich
+  pace.js     Tempo-Modell: Fahrzeit je Abschnitt aus Steigung, Wind und Untergrund
   wxmap.js    Windpfeile, eingefärbte Route, Legende
   targets.js  Ziele anlegen, auswählen, entfernen, Rückgängig
   export.js   GPX-Export, Übergabe an Komoot/Garmin
@@ -47,3 +48,13 @@ Module (js/)
   ranking.js  Wegeauswertung, Bewertung, Gewichtung, Ranking
   render.js   Gesamt-Aktualisierung der Oberfläche
   storage.js  Speichern/Wiederherstellen im Browser (localStorage)
+
+Tempo-Modell
+- „Tempo Ebene“ ist dein Dauertempo auf ebenem Asphalt bei Windstille. Daraus und aus dem
+  Gewicht (Fahrer + Rad) wird deine Dauerleistung berechnet (Anzeige in Watt).
+- Für jeden Abschnitt (≈ 250 m) ergibt sich das Tempo aus Leistung, Steigung, Gegen-/Rückenwind
+  (in Fahrerhöhe ≈ 70 % des 10-m-Werts), Untergrund (Rollwiderstand) und Luftdichte (Höhe).
+- Bergauf wird etwas mehr getreten (bis +60 % ab 8 % Steigung), bergab ab −5 % nur gerollt;
+  Höchsttempo bergab je Radtyp (Rennrad 50, Trekking 40, Gravel/MTB 35 km/h).
+- Radtyp (Luftwiderstand, Rollwiderstand) folgt dem gewählten Routing-Profil.
+- „konstantes Ø-Tempo“ rechnet wie früher: Fahrzeit = Strecke ÷ Tempo.
