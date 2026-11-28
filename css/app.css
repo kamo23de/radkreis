@@ -229,3 +229,27 @@
   body.phone #fabs{z-index:1001;bottom:calc(var(--sheetH) + 52px)}
   body.phone #installHint.on{z-index:1004}
   body.phone .leaflet-top{top:calc(92px + env(safe-area-inset-top))}
+  /* ===================== Windkarte ===================== */
+  #windPanel{display:none;position:absolute;z-index:1002;top:10px;left:50%;transform:translateX(-50%);width:min(500px,calc(100% - 150px));
+    background:rgba(255,255,255,.96);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.25);padding:7px 10px;font-size:12.5px}
+  body.windmap-on #windPanel{display:block}
+  .wm-head{display:flex;gap:8px;align-items:center}
+  .wm-head #wmTime{flex:1;font-weight:600;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wm-row{display:flex;gap:8px;align-items:center;margin-top:5px}
+  .wm-row input[type=range]{flex:1;min-width:0}
+  .wm-foot{flex-wrap:wrap;gap:4px 12px;color:var(--muted)}
+  .wm-foot label{display:inline-flex;gap:5px;align-items:center;margin:0;color:var(--muted)}
+  .wm-foot select{width:auto;padding:2px 6px;min-height:0;font-size:12.5px}
+  #wmLegend{margin-left:auto;min-width:150px;flex:1;max-width:220px}
+  .wm-bar{height:7px;border-radius:4px}
+  .wm-lbl{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted)}
+  #wmStatus{display:none;margin-top:5px;color:var(--muted)}
+  .wm-ctrl a{font-size:17px;text-decoration:none;text-align:center}
+  .wm-ctrl a.active{background:var(--accent-weak);box-shadow:inset 0 0 0 2px var(--accent)}
+  body.windmap-on #mapMsg{top:132px}
+  @media (pointer:coarse){ .wm-row button.small{min-height:36px} .wm-foot select{min-height:32px;font-size:14px} }
+  /* schmal (iPad hochkant): rechts neben den Zoom-Tasten, unter der Menü-Taste */
+  @media (max-width:900px){ #windPanel{top:calc(58px + env(safe-area-inset-top));left:56px;transform:none;width:calc(100% - 112px)} body.windmap-on #mapMsg{top:calc(190px + env(safe-area-inset-top))} }
+  /* iPhone: unter der Kopfleiste, links neben der Ebenenauswahl; Legende oben links rutscht unter das Feld */
+  body.phone #windPanel{top:calc(100px + env(safe-area-inset-top));left:10px;width:calc(100% - 74px);z-index:1003}
+  body.phone.windmap-on .leaflet-top.leaflet-left{top:calc(108px + var(--wmH,150px) + env(safe-area-inset-top))}

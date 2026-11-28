@@ -16,6 +16,7 @@ import { restore, save } from './storage.js';
 import { initPhone, isPhone } from './phone.js';
 import { initBottom, showBottom } from './bottom.js';
 import { initShare, openSharedFromHash } from './share.js';
+import { initWindMap } from './windmap.js';
 
 /* ================================================================ UI-Verdrahtung & Start */
 map.on('click', e => {
@@ -95,6 +96,7 @@ if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostn
 initBottom();  // unterer Bereich: Griff, Ausblenden, gespeicherte Höhe
 initPhone();   // iPhone-Layout einrichten (Bereiche ggf. ins Panel umhängen)
 initShare();
+initWindMap();  // Windkarte (Overlay mit Zeitregler)
 if(!openSharedFromHash()) restore();   // geteilter Link hat Vorrang vor der gespeicherten Planung
 renderAll();
 if(state.start||isPhone()) setMsg('');   // iPhone: Hinweis steht in der Kurzinfo des Panels

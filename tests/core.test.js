@@ -282,3 +282,33 @@ test('Planungs-Link: unsinnige Werte werden begrenzt bzw. verworfen', () => {
   assert.equal(p.targets[0].name, '<b>'); assert.equal(p.targets[0].retMode, 'none'); assert.equal(p.targets[0].pausePct, 0);
   assert.equal(p.targets.length, C.MAX_SHARED_TARGETS - 2, 'ungültige Ziele verworfen, höchstens 30 gelesen');
 });
+
+/* ---- Windkarte */
+test('windColor: Farbskala von ruhig bis stürmisch', () => {
+  assert.equal(C.windColor(0), C.WIND_STOPS[0][1]);
+  assert.equal(C.windColor(-5), C.WIND_STOPS[0][1]);
+  assert.equal(C.windColor(25), '#a3cf3c');
+  assert.equal(C.windColor(500), C.WIND_STOPS.at(-1)[1]);
+  assert.match(C.windColor(12.3), /^#[0-9a-f]{6}$/);
+});
+
+test('windGrid: Punktzahl begrenzt, Abstand passt zum Zoom, Punkte im Ausschnitt', () => {
+  const box = { s: 50, w: 10, n: 52, e: 14 };
+  const g8 = C.windGrid(box, 8), g6 = C.windGrid(box, 6);
+  assert.ok(g8.length > g6.length, 'mehr Punkte bei größerem Zoom');
+  for (const p of g8) assert.ok(p.lat >= 50 && p.lat <= 52 && p.lng >= 10 && p.lng <= 14);
+  assert.ok(C.windGrid({ s: -80, w: -180, n: 80, e: 180 }, 12).length <= 220);
+  assert.equal(new Set(g8.map(p => p.key)).size, g8.length, 'Schlüssel eindeutig');
+});
+
+test('windGrid: runde Koordinaten – beim Verschieben werden Punkte wiederverwendet', () => {
+  const a = C.windGrid({ s: 50, w: 10, n: 52, e: 14 }, 8).map(p => p.key);
+  const b = new Set(C.windGrid({ s: 50.3, w: 10.4, n: 52.3, e: 14.4 }, 8).map(p => p.key));
+  assert.ok(a.filter(k => b.has(k)).length > a.length * 0.6);
+});
+
+test('windGrid: Längengrade jenseits ±180° werden für die Abfrage zurückgerechnet', () => {
+  const g = C.windGrid({ s: 0, w: 170, n: 5, e: 190 }, 5);
+  assert.ok(g.some(p => p.lng > 180));
+  for (const p of g) assert.ok(p.qlng >= -180 && p.qlng < 180);
+});
