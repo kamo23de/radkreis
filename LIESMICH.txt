@@ -24,6 +24,10 @@ Hinweise
 - HTTPS ist nötig für „Mein Standort“, Offline-Start und die Installation.
 - Routing, Wetter, Ortssuche und Karten brauchen eine Internetverbindung.
 - GPX-Export öffnet auf dem iPad das Teilen-Menü (Komoot, Wahoo, Garmin, Dateien …).
+- Windkarte: Taste 🌬 oben rechts auf der Karte. Pfeile im Raster über dem sichtbaren Ausschnitt
+  zeigen, wohin der Wind weht, die Farbe die Stärke (blau ruhig → grün → gelb → rot → violett stürmisch).
+  Zeitregler mit Abspielen, Zeitraum 24 h / 3 / 7 / 16 Tage, „⏱ Start“ springt zur geplanten Startzeit.
+  Daten: Open-Meteo-Vorhersage (Wind in 10 m Höhe), je Ausschnitt bis ca. 220 Punkte.
 - Gespeicherte Planungen liegen lokal im Browser des Geräts.
 - „🔗 Planung als Link teilen“ erzeugt einen Link mit Start, Zielen und Einstellungen (Radius, Profil,
   Startzeit, Tempo, max. Dauer, Rückweg, Pausen, Ranking-Gewichte) – zum Weitergeben oder um die
@@ -53,6 +57,7 @@ Module (js/)
   bottom.js   unterer Bereich auf iPad/Desktop: Höhe ziehen, aus- und einblenden
   phone.js    iPhone-Layout: Vollbildkarte, Kopfleiste mit Chips, Panel von unten
   wxmap.js    Windpfeile, eingefärbte Route, Legende
+  windmap.js  Windkarte: Pfeilraster über dem Kartenausschnitt mit Zeitregler
   targets.js  Ziele anlegen, auswählen, entfernen, Rückgängig
   export.js   GPX-Export, Übergabe an Komoot/Garmin
   list.js     Routenliste und Vergleichstabelle

@@ -169,6 +169,38 @@ export function shiftYears(u,n){ // Unix-Sekunden um n Jahre zurück, gleicher K
   return Date.UTC(y,m,Math.min(d.getUTCDate(),dim),d.getUTCHours(),d.getUTCMinutes(),d.getUTCSeconds())/1000;
 }
 
+/* ================================================================ Windkarte (Raster und Farbskala) */
+// Farbskala für Windstärke in km/h (angelehnt an gängige Windkarten): ruhig blau → grün → gelb → rot → violett
+export const WIND_STOPS=[[0,'#5b6ee1'],[8,'#3a9ad9'],[16,'#36b37e'],[25,'#a3cf3c'],[33,'#f2cf35'],[42,'#f39b2a'],[55,'#e5462f'],[70,'#b8287a'],[90,'#6d2a8a']];
+export function windColor(kmh){
+  const v=Math.max(0,+kmh||0), S=WIND_STOPS;
+  if(v>=S[S.length-1][0]) return S[S.length-1][1];
+  let i=1; while(S[i][0]<v) i++;
+  const [a,ca]=S[i-1], [b,cb]=S[i], f=(v-a)/(b-a);
+  const ch=(c,k)=>parseInt(c.slice(1+2*k,3+2*k),16);
+  return '#'+[0,1,2].map(k=>Math.round(ch(ca,k)+(ch(cb,k)-ch(ca,k))*f).toString(16).padStart(2,'0')).join('');
+}
+const NICE_STEPS=[0.05,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.75,1,1.5,2,2.5,3,4,5,7.5,10,15,20,30];
+export function niceStep(x){ return NICE_STEPS.find(s=>s>=x-1e-12)??NICE_STEPS[NICE_STEPS.length-1]; }
+const nearestStep=x=>NICE_STEPS.reduce((a,b)=>Math.abs(Math.log(b/x))<Math.abs(Math.log(a/x))?b:a);
+export function windGrid({s,w,n,e},zoom,{spacingPx=65,maxPts=220}={}){
+  // Rasterpunkte auf „runden“ Koordinaten (wiederverwendbar beim Verschieben), Abstand ≈ spacingPx am Bildschirm
+  s=Math.max(-85,s); n=Math.min(85,n); if(!(n>s)||!(e>w)) return [];
+  const latC=(s+n)/2, lngRaw=spacingPx*360/(256*2**zoom);
+  for(let lng=niceStep(lngRaw);;lng=niceStep(lng*1.01)){
+    const lat=nearestStep(lng*Math.cos(latC*Math.PI/180));   // ähnlicher Abstand am Bildschirm wie in Ost-West-Richtung
+    const nLat=Math.floor(n/lat)-Math.ceil(s/lat)+1, nLng=Math.floor(e/lng)-Math.ceil(w/lng)+1;
+    if(nLat*nLng<=maxPts||lng>=NICE_STEPS[NICE_STEPS.length-1]){
+      const pts=[];
+      for(let i=Math.ceil(s/lat);i*lat<=n+1e-9;i++) for(let j=Math.ceil(w/lng);j*lng<=e+1e-9;j++){
+        const la=+(i*lat).toFixed(4), lo=+(j*lng).toFixed(4), lo180=+((((lo+180)%360)+360)%360-180).toFixed(4);
+        pts.push({lat:la, lng:lo, key:`${la.toFixed(2)},${lo180.toFixed(2)}`, qlng:lo180});
+      }
+      return pts.slice(0,maxPts);
+    }
+  }
+}
+
 /* ================================================================ Teilbare Planungs-Links
    Kompaktes Format (Version 1), als JSON → UTF-8 → base64url hinter „#p=“:
    {v:1, s:[lat,lng,name], r:radius, p:profil, t:start(unix), sp:tempo, h:fahrstd/tag, d:max.dauer,

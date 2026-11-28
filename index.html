@@ -215,6 +215,20 @@
       <button id="fabFit" title="Alle Routen zeigen" aria-label="Alle Routen zeigen">⤢</button>
     </div>
     <button id="bottomShow" title="Höhenprofil, Wind &amp; Wetter, Vergleich und Ranking einblenden">▴ Höhenprofil &amp; Wetter</button>
+    <div id="windPanel" role="region" aria-label="Windkarte">
+      <div class="wm-head"><b>🌬 Windkarte</b><span id="wmTime"></span><button id="wmClose" class="small" title="Windkarte ausblenden" aria-label="Windkarte ausblenden">✕</button></div>
+      <div class="wm-row">
+        <button id="wmPlay" class="small" title="Zeitverlauf abspielen" aria-label="Zeitverlauf abspielen">▶</button>
+        <input type="range" id="wmSlider" min="0" max="71" step="1" value="0" aria-label="Dargestellter Zeitpunkt">
+        <button id="wmStart" class="small" title="Geplante Startzeit anzeigen">⏱ Start</button>
+      </div>
+      <div class="wm-row wm-foot">
+        <label>Zeitraum <select id="wmHorizon" aria-label="Vorhersagezeitraum"></select></label>
+        <span>bis <span id="wmEnd"></span></span>
+        <div id="wmLegend"></div>
+      </div>
+      <div id="wmStatus"></div>
+    </div>
     <div id="mapMsg">Startpunkt wählen: Ort suchen, Standort nutzen oder in die Karte klicken.</div>
     <div id="toast" role="status" aria-live="polite"><span id="toastText"></span><button class="small" id="toastUndo">Rückgängig</button></div>
   </div>
